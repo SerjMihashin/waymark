@@ -44,6 +44,74 @@ The `experiment_summary` tool enforces these cohort boundaries.
 8. Read the grouped result with `experiment_summary`.
 9. Mark the experiment completed with `experiment_update`.
 
+The same workflow is available from the command line:
+
+```powershell
+# Create an experiment
+npm run benchmark -- create `
+  --name "Continuation benchmark" `
+  --scenario "continue-bugfix" `
+  --project-id "D--Projects-ClaudePlus" `
+  --target-runs 5
+
+# Record one run from flags
+npm run benchmark -- record `
+  --experiment-id "<experiment-id>" `
+  --variant without_hub `
+  --provider openai `
+  --model "<model-id>" `
+  --client codex `
+  --measurement exact `
+  --input-tokens 12000 `
+  --output-tokens 1800 `
+  --duration-ms 90000 `
+  --success true
+
+# Record a richer run from JSON
+npm run benchmark -- record --file .\run-with-hub.json
+
+# Read the report and close the experiment
+npm run benchmark -- summary --id "<experiment-id>"
+npm run benchmark -- complete --id "<experiment-id>"
+```
+
+Use `DB_PATH` to run against a separate benchmark database:
+
+```powershell
+$env:DB_PATH = "D:\tmp\claudeplus-benchmark.db"
+npm run benchmark -- list
+```
+
+The installed package exposes the same CLI as `claudeplus-benchmark`.
+For repository development, run `npm run build` after source changes before
+using `npm run benchmark`. The benchmark command itself does not rebuild
+`dist`, so it can run while the MCP server is active on Windows.
+
+Example JSON run:
+
+```json
+{
+  "experiment_id": "<experiment-id>",
+  "variant": "with_hub",
+  "provider": "openai",
+  "model": "<model-id>",
+  "client": "codex",
+  "measurement": "exact",
+  "input_tokens": 8500,
+  "output_tokens": 1400,
+  "hub_llm_input_tokens": 0,
+  "hub_llm_output_tokens": 0,
+  "context_tokens": 900,
+  "tool_calls": 14,
+  "files_read": ["src/server.ts", "src/tools/memory.ts"],
+  "repeated_files": 1,
+  "clarification_count": 0,
+  "duration_ms": 62000,
+  "result_quality": 95,
+  "success": true
+}
+```
+
 ## Required controls
 
 - Same provider, model and client within a cohort.

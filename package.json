@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Shared context and coordination MCP hub for AI agents",
   "main": "dist/server.js",
+  "bin": {
+    "claudeplus-benchmark": "dist/cli/benchmark.js"
+  },
   "files": [
     "dist",
     "README.md",
@@ -15,6 +18,7 @@
     "dev:http": "tsx src/server.ts --http",
     "start": "node dist/server.js",
     "start:http": "node dist/server.js --http",
+    "benchmark": "node dist/cli/benchmark.js",
     "backup:db": "tsx scripts/backup-db.ts",
     "import:memory": "tsx scripts/import-existing-memory.ts"
   },

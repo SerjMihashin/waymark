@@ -310,6 +310,102 @@ test('context tools rank relevant records and enforce the serialized token budge
   assert.equal(resumePacket.project.id, 'context-project');
 });
 
+test('memory lifecycle supersedes old records and excludes inactive context', async () => {
+  await callTool('project_upsert', {
+    id: 'lifecycle-project',
+    name: 'Lifecycle Project',
+    root_path: path.join(testDir, 'lifecycle-project'),
+  });
+
+  const oldResult = await callTool('memory_write', {
+    project_id: 'lifecycle-project',
+    name: 'old-auth-decision',
+    description: 'Use the legacy authentication middleware.',
+    body: 'Legacy authentication approach.',
+    type: 'decision',
+    importance: 90,
+    confidence: 80,
+    source_type: 'file',
+    source_ref: 'src/auth/legacy.ts',
+  });
+  const oldMemory = JSON.parse(textContent(oldResult));
+
+  const replacementResult = await callTool('memory_write', {
+    project_id: 'lifecycle-project',
+    name: 'current-auth-decision',
+    description: 'Use the current authentication middleware.',
+    body: 'Current authentication approach.',
+    type: 'decision',
+    importance: 95,
+    confidence: 90,
+    source_type: 'file',
+    source_ref: 'src/auth/current.ts',
+    supersedes_id: oldMemory.id,
+    last_verified_at: new Date().toISOString(),
+  });
+  const replacement = JSON.parse(textContent(replacementResult));
+  assert.equal(replacement.supersedes_id, oldMemory.id);
+
+  const oldAfter = JSON.parse(textContent(await callTool('memory_read', { id: oldMemory.id })));
+  assert.equal(oldAfter.status, 'superseded');
+
+  const staleResult = await callTool('memory_write', {
+    project_id: 'lifecycle-project',
+    name: 'stale-auth-note',
+    description: 'Stale authentication information.',
+    body: 'This record must not appear in normal context.',
+    type: 'project',
+    status: 'stale',
+  });
+  const stale = JSON.parse(textContent(staleResult));
+
+  const feedback = await callTool('memory_feedback', {
+    memory_id: replacement.id,
+    rating: 'helpful',
+    notes: 'Directly answered the authentication question.',
+  });
+  assert.equal(JSON.parse(textContent(feedback)).rating, 'helpful');
+
+  const context = JSON.parse(textContent(await callTool('context_get', {
+    project_id: 'lifecycle-project',
+    task: 'Update authentication middleware',
+    max_tokens: 700,
+  })));
+  const ids = context.memories.map(memory => memory.id);
+
+  assert.ok(ids.includes(replacement.id));
+  assert.equal(ids.includes(oldMemory.id), false);
+  assert.equal(ids.includes(stale.id), false);
+  assert.equal(context.memories[0].source_ref, 'src/auth/current.ts');
+  assert.ok(context.memories[0].reasons.includes('positive-feedback'));
+
+  const activeSearch = JSON.parse(textContent(await callTool('memory_search', {
+    project_id: 'lifecycle-project',
+    query: 'authentication',
+  })));
+  assert.deepEqual(activeSearch.map(memory => memory.id), [replacement.id]);
+
+  const historicalSearch = JSON.parse(textContent(await callTool('memory_search', {
+    project_id: 'lifecycle-project',
+    query: 'authentication',
+    include_inactive: true,
+  })));
+  assert.ok(historicalSearch.some(memory => memory.id === oldMemory.id));
+  assert.ok(historicalSearch.some(memory => memory.id === stale.id));
+
+  const archived = await callTool('memory_set_status', {
+    id: replacement.id,
+    status: 'archived',
+  });
+  assert.equal(JSON.parse(textContent(archived)).status, 'archived');
+
+  const activeList = JSON.parse(textContent(await callTool('memory_list', {
+    project_id: 'lifecycle-project',
+    status: 'active',
+  })));
+  assert.equal(activeList.length, 0);
+});
+
 test('reopening a completed task clears completed_at', async () => {
   const created = await callTool('task_create', {
     project_id: 'test-project',

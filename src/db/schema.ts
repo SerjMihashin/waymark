@@ -22,6 +22,15 @@ export interface MemoryNode {
   created_at: string;
   updated_at: string;
   created_by_agent: string | null;
+  status: 'active' | 'superseded' | 'stale' | 'archived';
+  importance: number;
+  confidence: number;
+  source_type: string | null;
+  source_ref: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  supersedes_id: string | null;
+  last_verified_at: string | null;
 }
 
 export interface Task {
@@ -70,6 +79,16 @@ export interface Agent {
   status: 'active' | 'paused' | 'retired';
   created_at: string;
   updated_at: string;
+}
+
+export interface MemoryFeedback {
+  id: string;
+  memory_id: string;
+  agent_id: string | null;
+  session_id: string | null;
+  rating: 'used' | 'not_used' | 'helpful' | 'irrelevant' | 'stale' | 'incorrect' | 'too_verbose';
+  notes: string | null;
+  created_at: string;
 }
 
 export interface Experiment {

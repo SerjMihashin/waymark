@@ -11,6 +11,10 @@ interface ContextMemory {
   source: 'project' | 'global';
   score: number;
   reasons: string[];
+  importance: number;
+  confidence: number;
+  source_type: string | null;
+  source_ref: string | null;
   body?: string;
 }
 
@@ -72,6 +76,16 @@ const TYPE_WEIGHT: Record<MemoryNode['type'], number> = {
   feedback: 35,
   project: 30,
   reference: 20,
+};
+
+const FEEDBACK_WEIGHT: Record<string, number> = {
+  used: 3,
+  helpful: 8,
+  not_used: -2,
+  irrelevant: -12,
+  stale: -20,
+  incorrect: -30,
+  too_verbose: -5,
 };
 
 function terms(value: string): Set<string> {
@@ -214,9 +228,26 @@ export function buildContextPacket(options: BuildContextOptions): ContextPacket 
 
   const memories = db.prepare(`
     SELECT * FROM memory_nodes
-    WHERE project_id = ? OR project_id IS NULL
+    WHERE (project_id = ? OR project_id IS NULL)
+      AND status = 'active'
+      AND (valid_from IS NULL OR valid_from <= ?)
+      AND (valid_until IS NULL OR valid_until >= ?)
     ORDER BY updated_at DESC
-  `).all(options.projectId) as MemoryNode[];
+  `).all(options.projectId, new Date().toISOString(), new Date().toISOString()) as MemoryNode[];
+
+  const feedbackRows = db.prepare(`
+    SELECT memory_id, rating, COUNT(*) AS count
+    FROM memory_feedback
+    GROUP BY memory_id, rating
+  `).all() as Array<{ memory_id: string; rating: string; count: number }>;
+  const feedbackScores = new Map<string, number>();
+  for (const feedback of feedbackRows) {
+    const current = feedbackScores.get(feedback.memory_id) ?? 0;
+    feedbackScores.set(
+      feedback.memory_id,
+      current + (FEEDBACK_WEIGHT[feedback.rating] ?? 0) * feedback.count
+    );
+  }
 
   const rankedMemories = memories
     .filter(row => !options.memoryTypes || options.memoryTypes.includes(row.type))
@@ -230,18 +261,25 @@ export function buildContextPacket(options: BuildContextOptions): ContextPacket 
       const projectBoost = row.project_id === options.projectId ? 20 : 0;
       const termScore = overlapScore(queryTerms, searchable);
       const recentScore = recencyScore(row.updated_at);
+      const feedbackScore = feedbackScores.get(row.id) ?? 0;
       const reasons = [
         row.type,
         row.project_id === options.projectId ? 'project-memory' : 'global-memory',
       ];
       if (termScore > 0) reasons.push('task-term-match');
       if (recentScore >= 10) reasons.push('recent');
+      if (row.importance >= 75) reasons.push('high-importance');
+      if (row.confidence >= 75) reasons.push('high-confidence');
+      if (feedbackScore > 0) reasons.push('positive-feedback');
       return {
         row,
         score: TYPE_WEIGHT[row.type] +
           projectBoost +
           termScore +
-          recentScore,
+          recentScore +
+          Math.round(row.importance / 5) +
+          Math.round(row.confidence / 10) +
+          feedbackScore,
         reasons,
       };
     })
@@ -257,6 +295,10 @@ export function buildContextPacket(options: BuildContextOptions): ContextPacket 
       source: row.project_id === options.projectId ? 'project' : 'global',
       score,
       reasons,
+      importance: row.importance,
+      confidence: row.confidence,
+      source_type: row.source_type,
+      source_ref: row.source_ref,
     };
     if (options.includeSources) {
       item.body = compact(row.body, 1000) ?? '';

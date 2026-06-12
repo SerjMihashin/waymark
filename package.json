@@ -12,7 +12,8 @@
     "docs/BENCHMARKING.md",
     "docs/AGENT_IDENTITY.md",
     "docs/CONTEXT.md",
-    "docs/MEMORY_LIFECYCLE.md"
+    "docs/MEMORY_LIFECYCLE.md",
+    "docs/TASK_COORDINATION.md"
   ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');fs.mkdirSync('dist/db/migrations',{recursive:true});fs.readdirSync('src/db/migrations').forEach(f=>fs.copyFileSync('src/db/migrations/'+f,'dist/db/migrations/'+f));console.log('Migrations copied.')\"",

@@ -48,6 +48,11 @@ export interface Task {
   completed_at: string | null;
   created_by_agent: string | null;
   assigned_agent_id: string | null;
+  required_capabilities: string | null;
+  claimed_by_agent: string | null;
+  claimed_at: string | null;
+  blocker: string | null;
+  progress: number;
 }
 
 export interface Session {

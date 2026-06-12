@@ -219,6 +219,115 @@ test('registered agent identity links memory, tasks, sessions, and usage', async
   assert.equal(JSON.parse(textContent(paused)).status, 'paused');
 });
 
+test('task coordination enforces dependencies, capabilities, and exclusive claims', async () => {
+  await callTool('agent_register', {
+    id: 'coord-agent-a',
+    display_name: 'Coordination Agent A',
+    capabilities: ['code'],
+  });
+  await callTool('agent_register', {
+    id: 'coord-agent-b',
+    display_name: 'Coordination Agent B',
+    capabilities: ['code'],
+  });
+  await callTool('agent_register', {
+    id: 'coord-agent-reader',
+    display_name: 'Coordination Reader',
+    capabilities: ['read'],
+  });
+
+  const prerequisite = JSON.parse(textContent(await callTool('task_create', {
+    project_id: 'test-project',
+    title: 'Prepare coordination input',
+    description: 'Dependency for the coordinated task',
+  })));
+  const coordinated = JSON.parse(textContent(await callTool('task_create', {
+    project_id: 'test-project',
+    title: 'Run coordinated work',
+    description: 'Must be claimed once by a capable agent',
+    required_capabilities: ['code'],
+    dependency_ids: [prerequisite.id],
+  })));
+
+  const blockedByDependency = await callTool('task_claim', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-a',
+  });
+  assert.equal(blockedByDependency.isError, true);
+  assert.match(textContent(blockedByDependency), /incomplete dependencies/);
+
+  await callTool('task_update', { id: prerequisite.id, status: 'done' });
+
+  const missingCapability = await callTool('task_claim', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-reader',
+  });
+  assert.equal(missingCapability.isError, true);
+  assert.match(textContent(missingCapability), /missing required capabilities/);
+
+  const claimed = JSON.parse(textContent(await callTool('task_claim', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-a',
+  })));
+  assert.equal(claimed.status, 'in_progress');
+  assert.equal(claimed.claimed_by_agent, 'coord-agent-a');
+
+  const competingClaim = await callTool('task_claim', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-b',
+  });
+  assert.equal(competingClaim.isError, true);
+  assert.match(textContent(competingClaim), /not available for claim/);
+
+  const progressed = JSON.parse(textContent(await callTool('task_update', {
+    id: coordinated.id,
+    blocker: 'Waiting for review',
+    progress: 60,
+  })));
+  assert.equal(progressed.blocker, 'Waiting for review');
+  assert.equal(progressed.progress, 60);
+
+  const wrongRelease = await callTool('task_release', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-b',
+  });
+  assert.equal(wrongRelease.isError, true);
+
+  const released = JSON.parse(textContent(await callTool('task_release', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-a',
+    blocker: 'Handed back to the queue',
+  })));
+  assert.equal(released.status, 'pending');
+  assert.equal(released.claimed_by_agent, null);
+
+  const reclaimed = JSON.parse(textContent(await callTool('task_claim', {
+    id: coordinated.id,
+    agent_id: 'coord-agent-b',
+  })));
+  assert.equal(reclaimed.claimed_by_agent, 'coord-agent-b');
+
+  const blockedTasks = JSON.parse(textContent(await callTool('task_list', {
+    claimed_by_agent: 'coord-agent-b',
+    blocked: true,
+  })));
+  assert.equal(blockedTasks.length, 1);
+  assert.equal(blockedTasks[0].id, coordinated.id);
+
+  const selfDependency = await callTool('task_add_dependency', {
+    id: coordinated.id,
+    depends_on_id: coordinated.id,
+  });
+  assert.equal(selfDependency.isError, true);
+
+  const reverseDependency = await callTool('task_add_dependency', {
+    id: prerequisite.id,
+    depends_on_id: coordinated.id,
+  });
+  assert.equal(reverseDependency.isError, true);
+  assert.match(textContent(reverseDependency), /create a cycle/);
+});
+
 test('context tools rank relevant records and enforce the serialized token budget', async () => {
   await callTool('project_upsert', {
     id: 'context-project',

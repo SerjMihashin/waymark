@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.claude/
+.codex/
+.idea/
+.mcp.json
+data/hub.db
+data/hub.db-shm
+data/hub.db-wal
+data/backups/
+data/attachments/
+.env
+*.js.map
+/D*ProjectsClaudePlus*/

@@ -1,0 +1,22 @@
+# Запуск: podman compose up -d
+# Остановка: podman compose down
+# Логи: podman compose logs -f
+
+services:
+  hub:
+    build: .
+    container_name: claudeplus-hub
+    ports:
+      - "127.0.0.1:3747:3747"
+    environment:
+      HOST: "0.0.0.0"
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+    volumes:
+      - ./data:/app/data:Z
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3747/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

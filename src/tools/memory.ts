@@ -19,13 +19,18 @@ export function registerMemoryTools(server: McpServer): void {
         body: z.string().describe('Full memory content in markdown'),
         tags: z.array(z.string()).optional().describe('Tags for search, e.g. ["auth", "security"]'),
         surface: z.string().default('claude-code').describe('Which Claude surface is writing this'),
+        agent_id: z.string().optional().describe('Registered agent identity writing this record'),
         origin_session: z.string().optional(),
       }),
     },
-    ({ project_id, name, description, type, body, tags, surface, origin_session }) => {
+    ({ project_id, name, description, type, body, tags, surface, agent_id, origin_session }) => {
       const db = getDb();
       const tagsJson = tags ? JSON.stringify(tags) : null;
       const now = new Date().toISOString();
+
+      if (agent_id && !db.prepare('SELECT 1 FROM agents WHERE id = ?').get(agent_id)) {
+        return { content: [{ type: 'text', text: `Agent "${agent_id}" not found.` }], isError: true };
+      }
 
       const existing = db.prepare(
         'SELECT id FROM memory_nodes WHERE name = ? AND (project_id = ? OR (project_id IS NULL AND ? IS NULL))'
@@ -35,9 +40,20 @@ export function registerMemoryTools(server: McpServer): void {
         db.prepare(`
           UPDATE memory_nodes SET
             description = ?, type = ?, body = ?, tags = ?,
-            surface = ?, origin_session = ?, updated_at = ?
+            surface = ?, created_by_agent = COALESCE(?, created_by_agent),
+            origin_session = ?, updated_at = ?
           WHERE id = ?
-        `).run(description, type, body, tagsJson, surface, origin_session ?? null, now, existing.id);
+        `).run(
+          description,
+          type,
+          body,
+          tagsJson,
+          surface,
+          agent_id ?? null,
+          origin_session ?? null,
+          now,
+          existing.id
+        );
         const row = db.prepare('SELECT * FROM memory_nodes WHERE id = ?').get(existing.id);
         return { content: [{ type: 'text', text: JSON.stringify(row, null, 2) }] };
       }
@@ -45,9 +61,25 @@ export function registerMemoryTools(server: McpServer): void {
       const id = randomUUID();
       db.prepare(`
         INSERT INTO memory_nodes
-          (id, project_id, surface, name, description, type, body, tags, origin_session, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, project_id ?? null, surface, name, description, type, body, tagsJson, origin_session ?? null, now, now);
+          (
+            id, project_id, surface, name, description, type, body, tags,
+            origin_session, created_at, updated_at, created_by_agent
+          )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        project_id ?? null,
+        surface,
+        name,
+        description,
+        type,
+        body,
+        tagsJson,
+        origin_session ?? null,
+        now,
+        now,
+        agent_id ?? null
+      );
 
       const row = db.prepare('SELECT * FROM memory_nodes WHERE id = ?').get(id);
       return { content: [{ type: 'text', text: JSON.stringify(row, null, 2) }] };

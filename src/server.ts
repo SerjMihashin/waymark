@@ -10,6 +10,7 @@ import { registerMemoryTools } from './tools/memory.js';
 import { registerTaskTools } from './tools/tasks.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerTelemetryTools } from './tools/telemetry.js';
+import { registerAgentTools } from './tools/agents.js';
 
 const PORT = parseInt(process.env.PORT || '3747', 10);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -28,8 +29,9 @@ export function createMcpServer(): McpServer {
     { name: 'claudeplus-hub', version: '1.0.0' },
     {
       instructions:
-        'Shared context hub for AI agents. At session start: call project_list, then memory_list ' +
-        'for the relevant project, then task_list with your assigned_to id and status=pending. ' +
+        'Shared context hub for AI agents. Register or reuse a stable agent_id when supported. ' +
+        'At session start: call project_list, then memory_list for the relevant project, ' +
+        'then task_list with your agent or client assignment and status=pending. ' +
         'At session end: call session_log, then memory_write for durable decisions.',
     }
   );
@@ -39,6 +41,7 @@ export function createMcpServer(): McpServer {
   registerTaskTools(server);
   registerSessionTools(server);
   registerTelemetryTools(server);
+  registerAgentTools(server);
   return server;
 }
 

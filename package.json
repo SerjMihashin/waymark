@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "README.md",
-    "docs/BENCHMARKING.md"
+    "docs/BENCHMARKING.md",
+    "docs/AGENT_IDENTITY.md"
   ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');fs.mkdirSync('dist/db/migrations',{recursive:true});fs.readdirSync('src/db/migrations').forEach(f=>fs.copyFileSync('src/db/migrations/'+f,'dist/db/migrations/'+f));console.log('Migrations copied.')\"",

@@ -21,6 +21,7 @@ export interface MemoryNode {
   origin_session: string | null;
   created_at: string;
   updated_at: string;
+  created_by_agent: string | null;
 }
 
 export interface Task {
@@ -36,6 +37,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  created_by_agent: string | null;
+  assigned_agent_id: string | null;
 }
 
 export interface Session {
@@ -48,6 +51,25 @@ export interface Session {
   files_touched: string | null;
   commits_made: string | null;
   outcome: string | null;
+  agent_id: string | null;
+  provider: string | null;
+  model: string | null;
+  client: string | null;
+  client_session_id: string | null;
+}
+
+export interface Agent {
+  id: string;
+  display_name: string;
+  provider: string | null;
+  model: string | null;
+  client: string | null;
+  client_version: string | null;
+  capabilities: string | null;
+  metadata: string | null;
+  status: 'active' | 'paused' | 'retired';
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Experiment {
@@ -88,4 +110,5 @@ export interface UsageReport {
   success: number | null;
   notes: string | null;
   created_at: string;
+  agent_id: string | null;
 }

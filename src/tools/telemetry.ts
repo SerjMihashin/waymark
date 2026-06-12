@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db/client.js';
-import { Experiment, UsageReport } from '../db/schema.js';
+import { Agent, Experiment, Session, UsageReport } from '../db/schema.js';
 import { estimateTokens, totalModelTokens } from '../telemetry/tokens.js';
 
 type UsageReportWithTotal = UsageReport & { total_model_tokens: number | null };
@@ -145,6 +145,7 @@ export function registerTelemetryTools(server: McpServer): void {
       inputSchema: z.object({
         project_id: z.string().optional(),
         session_id: z.string().optional(),
+        agent_id: z.string().optional(),
         experiment_id: z.string().optional(),
         variant: z.enum(['without_hub', 'with_hub']).optional(),
         provider: z.string().optional(),
@@ -183,6 +184,7 @@ export function registerTelemetryTools(server: McpServer): void {
     ({
       project_id,
       session_id,
+      agent_id,
       experiment_id,
       variant,
       provider,
@@ -207,10 +209,24 @@ export function registerTelemetryTools(server: McpServer): void {
     }) => {
       const db = getDb();
 
-      if (session_id && !db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(session_id)) {
-        return errorContent(`Session "${session_id}" not found.`);
+      let session: Session | undefined;
+      if (session_id) {
+        session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id) as Session | undefined;
+        if (!session) return errorContent(`Session "${session_id}" not found.`);
+        if (agent_id && session.agent_id && agent_id !== session.agent_id) {
+          return errorContent('usage_report agent_id must match the session agent_id.');
+        }
       }
-      let effectiveProjectId = project_id ?? null;
+      const effectiveAgentId = agent_id ?? session?.agent_id ?? null;
+      let agent: Agent | undefined;
+      if (effectiveAgentId) {
+        agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(effectiveAgentId) as Agent | undefined;
+        if (!agent) return errorContent(`Agent "${effectiveAgentId}" not found.`);
+      }
+      if (project_id && session?.project_id && project_id !== session.project_id) {
+        return errorContent('usage_report project_id must match the session project_id.');
+      }
+      let effectiveProjectId = project_id ?? session?.project_id ?? null;
       if (experiment_id) {
         const experiment = db.prepare(
           'SELECT project_id FROM experiments WHERE id = ?'
@@ -235,7 +251,7 @@ export function registerTelemetryTools(server: McpServer): void {
           hub_llm_input_tokens, hub_llm_output_tokens,
           context_tokens, context_chars, tool_calls, files_read,
           repeated_files, clarification_count, duration_ms,
-          result_quality, success, notes, created_at
+          result_quality, success, notes, created_at, agent_id
         )
         VALUES (
           ?, ?, ?, ?, ?,
@@ -244,7 +260,7 @@ export function registerTelemetryTools(server: McpServer): void {
           ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
-          ?, ?, ?, ?
+          ?, ?, ?, ?, ?
         )
       `).run(
         id,
@@ -252,9 +268,9 @@ export function registerTelemetryTools(server: McpServer): void {
         session_id ?? null,
         experiment_id ?? null,
         variant ?? null,
-        provider ?? null,
-        model ?? null,
-        client ?? null,
+        provider ?? agent?.provider ?? session?.provider ?? null,
+        model ?? agent?.model ?? session?.model ?? null,
+        client ?? agent?.client ?? session?.client ?? null,
         measurement,
         input_tokens ?? null,
         output_tokens ?? null,
@@ -271,7 +287,8 @@ export function registerTelemetryTools(server: McpServer): void {
         result_quality ?? null,
         success === undefined ? null : Number(success),
         notes ?? null,
-        now
+        now,
+        effectiveAgentId
       );
 
       const row = db.prepare('SELECT * FROM usage_reports WHERE id = ?').get(id) as UsageReport;

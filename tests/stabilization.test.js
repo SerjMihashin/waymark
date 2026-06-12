@@ -10,7 +10,7 @@ process.env.DB_PATH = path.join(testDir, 'hub.db');
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
-const { closeDb } = require('../dist/db/client.js');
+const { closeDb, getDb } = require('../dist/db/client.js');
 const { createHttpApp, createMcpServer } = require('../dist/server.js');
 
 let client;
@@ -118,6 +118,104 @@ test('project memory takes precedence over same-named global memory', async () =
 
   assert.equal(memory.project_id, 'test-project');
   assert.equal(memory.body, 'PROJECT');
+});
+
+test('registered agent identity links memory, tasks, sessions, and usage', async () => {
+  const registered = await callTool('agent_register', {
+    id: 'test-agent',
+    display_name: 'Test Agent',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    client_version: '1.2.3',
+    capabilities: ['code', 'browser'],
+    metadata: { role: 'integration-test' },
+  });
+  const agent = JSON.parse(textContent(registered));
+  assert.equal(agent.id, 'test-agent');
+  assert.deepEqual(agent.capabilities, ['code', 'browser']);
+  assert.deepEqual(agent.metadata, { role: 'integration-test' });
+
+  const listed = await callTool('agent_list', { capability: 'browser' });
+  assert.equal(JSON.parse(textContent(listed))[0].id, 'test-agent');
+
+  const memoryResult = await callTool('memory_write', {
+    project_id: 'test-project',
+    name: 'agent-linked-memory',
+    description: 'Agent-linked memory',
+    body: 'Linked to a registered agent',
+    agent_id: 'test-agent',
+    surface: 'legacy-surface',
+  });
+  assert.equal(JSON.parse(textContent(memoryResult)).created_by_agent, 'test-agent');
+  const legacyMemoryUpdate = await callTool('memory_write', {
+    project_id: 'test-project',
+    name: 'agent-linked-memory',
+    description: 'Updated by a legacy client',
+    body: 'Identity must remain linked',
+    surface: 'legacy-surface',
+  });
+  assert.equal(JSON.parse(textContent(legacyMemoryUpdate)).created_by_agent, 'test-agent');
+
+  const taskResult = await callTool('task_create', {
+    project_id: 'test-project',
+    title: 'Agent-linked task',
+    description: 'Verify agent task ownership',
+    created_by_agent: 'test-agent',
+    assigned_agent_id: 'test-agent',
+  });
+  const task = JSON.parse(textContent(taskResult));
+  assert.equal(task.created_by_agent, 'test-agent');
+  assert.equal(task.assigned_agent_id, 'test-agent');
+
+  const sessionResult = await callTool('session_log', {
+    project_id: 'test-project',
+    agent_id: 'test-agent',
+    surface: 'legacy-surface',
+    client_session_id: 'client-session-123',
+    started_at: new Date().toISOString(),
+    summary: 'Agent identity integration test',
+  });
+  const sessionId = textContent(sessionResult).match(/"([^"]+)"/)?.[1];
+  assert.ok(sessionId);
+
+  const session = getDb().prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  assert.equal(session.agent_id, 'test-agent');
+  assert.equal(session.provider, 'test-provider');
+  assert.equal(session.model, 'test-model');
+  assert.equal(session.client, 'test-client');
+  assert.equal(session.client_session_id, 'client-session-123');
+
+  const usageResult = await callTool('usage_report', {
+    project_id: 'test-project',
+    session_id: sessionId,
+    agent_id: 'test-agent',
+    measurement: 'exact',
+    input_tokens: 100,
+    output_tokens: 20,
+  });
+  const usage = JSON.parse(textContent(usageResult));
+  assert.equal(usage.agent_id, 'test-agent');
+  assert.equal(usage.provider, 'test-provider');
+  assert.equal(usage.model, 'test-model');
+  assert.equal(usage.client, 'test-client');
+
+  const inheritedUsageResult = await callTool('usage_report', {
+    session_id: sessionId,
+    measurement: 'exact',
+    input_tokens: 50,
+    output_tokens: 10,
+  });
+  const inheritedUsage = JSON.parse(textContent(inheritedUsageResult));
+  assert.equal(inheritedUsage.project_id, 'test-project');
+  assert.equal(inheritedUsage.agent_id, 'test-agent');
+  assert.equal(inheritedUsage.provider, 'test-provider');
+
+  const paused = await callTool('agent_set_status', {
+    id: 'test-agent',
+    status: 'paused',
+  });
+  assert.equal(JSON.parse(textContent(paused)).status, 'paused');
 });
 
 test('reopening a completed task clears completed_at', async () => {

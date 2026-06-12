@@ -231,3 +231,115 @@ test('stateless HTTP transport handles an MCP initialize request', async () => {
     });
   }
 });
+
+test('usage report estimates context tokens without double-counting them', async () => {
+  const result = await callTool('usage_report', {
+    project_id: 'test-project',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    measurement: 'exact',
+    input_tokens: 1000,
+    output_tokens: 200,
+    hub_llm_input_tokens: 50,
+    hub_llm_output_tokens: 25,
+    context_text: 'x'.repeat(400),
+  });
+  const report = JSON.parse(textContent(result));
+
+  assert.equal(report.context_tokens, 100);
+  assert.equal(report.context_chars, 400);
+  assert.equal(report.total_model_tokens, 1275);
+});
+
+test('exact usage requires token counts', async () => {
+  const result = await callTool('usage_report', {
+    project_id: 'test-project',
+    measurement: 'exact',
+  });
+
+  assert.equal(result.isError, true);
+});
+
+test('experiment summary calculates savings within isolated measurement cohorts', async () => {
+  const created = await callTool('experiment_create', {
+    project_id: 'test-project',
+    name: 'Continuation benchmark',
+    scenario: 'continue-bugfix',
+    target_runs: 1,
+  });
+  const experiment = JSON.parse(textContent(created));
+
+  await callTool('usage_report', {
+    project_id: 'test-project',
+    experiment_id: experiment.id,
+    variant: 'without_hub',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    measurement: 'exact',
+    input_tokens: 2000,
+    output_tokens: 500,
+    duration_ms: 10000,
+  });
+  await callTool('usage_report', {
+    project_id: 'test-project',
+    experiment_id: experiment.id,
+    variant: 'with_hub',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    measurement: 'exact',
+    input_tokens: 1400,
+    output_tokens: 400,
+    hub_llm_input_tokens: 75,
+    hub_llm_output_tokens: 25,
+    context_tokens: 300,
+    duration_ms: 7000,
+  });
+  await callTool('usage_report', {
+    project_id: 'test-project',
+    experiment_id: experiment.id,
+    variant: 'with_hub',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    measurement: 'estimated',
+    input_tokens: 1000,
+    output_tokens: 200,
+  });
+
+  const result = await callTool('experiment_summary', { id: experiment.id });
+  const summary = JSON.parse(textContent(result));
+
+  assert.equal(summary.total_reports, 3);
+  assert.equal(summary.cohorts.length, 2);
+
+  const exact = summary.cohorts.find(cohort => cohort.measurement === 'exact');
+  assert.ok(exact);
+  assert.equal(exact.without_hub.median_total_model_tokens, 2500);
+  assert.equal(exact.with_hub.median_total_model_tokens, 1900);
+  assert.equal(exact.net_token_saving, 600);
+  assert.equal(exact.net_token_saving_percent, 24);
+  assert.equal(exact.target_reached, true);
+
+  const estimated = summary.cohorts.find(cohort => cohort.measurement === 'estimated');
+  assert.ok(estimated);
+  assert.equal(estimated.without_hub.runs, 0);
+  assert.equal(estimated.net_token_saving, null);
+
+  const updated = await callTool('experiment_update', {
+    id: experiment.id,
+    status: 'completed',
+  });
+  assert.equal(JSON.parse(textContent(updated)).status, 'completed');
+
+  const listed = await callTool('experiment_list', {
+    project_id: 'test-project',
+    status: 'completed',
+  });
+  const experiments = JSON.parse(textContent(listed));
+  assert.equal(experiments.length, 1);
+  assert.equal(experiments[0].without_hub_runs, 1);
+  assert.equal(experiments[0].with_hub_runs, 2);
+});

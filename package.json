@@ -1,11 +1,12 @@
 {
   "name": "claudeplus-hub",
   "version": "1.0.0",
-  "description": "Shared context MCP hub for all Claude surfaces",
+  "description": "Shared context and coordination MCP hub for AI agents",
   "main": "dist/server.js",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "docs/BENCHMARKING.md"
   ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');fs.mkdirSync('dist/db/migrations',{recursive:true});fs.readdirSync('src/db/migrations').forEach(f=>fs.copyFileSync('src/db/migrations/'+f,'dist/db/migrations/'+f));console.log('Migrations copied.')\"",

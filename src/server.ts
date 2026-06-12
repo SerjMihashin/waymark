@@ -9,6 +9,7 @@ import { registerProjectTools } from './tools/projects.js';
 import { registerMemoryTools } from './tools/memory.js';
 import { registerTaskTools } from './tools/tasks.js';
 import { registerSessionTools } from './tools/sessions.js';
+import { registerTelemetryTools } from './tools/telemetry.js';
 
 const PORT = parseInt(process.env.PORT || '3747', 10);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -37,6 +38,7 @@ export function createMcpServer(): McpServer {
   registerMemoryTools(server);
   registerTaskTools(server);
   registerSessionTools(server);
+  registerTelemetryTools(server);
   return server;
 }
 

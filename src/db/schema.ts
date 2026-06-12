@@ -49,3 +49,43 @@ export interface Session {
   commits_made: string | null;
   outcome: string | null;
 }
+
+export interface Experiment {
+  id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  scenario: string;
+  status: 'active' | 'completed' | 'cancelled';
+  target_runs: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UsageReport {
+  id: string;
+  project_id: string | null;
+  session_id: string | null;
+  experiment_id: string | null;
+  variant: 'without_hub' | 'with_hub' | null;
+  provider: string | null;
+  model: string | null;
+  client: string | null;
+  measurement: 'exact' | 'estimated';
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  hub_llm_input_tokens: number;
+  hub_llm_output_tokens: number;
+  context_tokens: number | null;
+  context_chars: number | null;
+  tool_calls: number | null;
+  files_read: string | null;
+  repeated_files: number | null;
+  clarification_count: number | null;
+  duration_ms: number | null;
+  result_quality: number | null;
+  success: number | null;
+  notes: string | null;
+  created_at: string;
+}

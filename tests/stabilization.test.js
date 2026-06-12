@@ -12,6 +12,7 @@ const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 const { closeDb, getDb } = require('../dist/db/client.js');
 const { createHttpApp, createMcpServer } = require('../dist/server.js');
+const { estimateTokens } = require('../dist/telemetry/tokens.js');
 
 let client;
 let mcpServer;
@@ -216,6 +217,97 @@ test('registered agent identity links memory, tasks, sessions, and usage', async
     status: 'paused',
   });
   assert.equal(JSON.parse(textContent(paused)).status, 'paused');
+});
+
+test('context tools rank relevant records and enforce the serialized token budget', async () => {
+  await callTool('project_upsert', {
+    id: 'context-project',
+    name: 'Context Project',
+    root_path: path.join(testDir, 'context-project'),
+    stack: 'TypeScript and SQLite',
+    description: 'Project used to verify compact context packets.',
+  });
+  await callTool('agent_register', {
+    id: 'context-agent',
+    display_name: 'Context Agent',
+    provider: 'test-provider',
+    model: 'test-model',
+    client: 'test-client',
+    capabilities: ['code'],
+  });
+  await callTool('memory_write', {
+    project_id: 'context-project',
+    name: 'sqlite-locking-decision',
+    description: 'Use WAL and short transactions to prevent SQLite locking during writes.',
+    body: 'Detailed SQLite locking decision. '.repeat(80),
+    type: 'decision',
+    agent_id: 'context-agent',
+  });
+  await callTool('memory_write', {
+    project_id: 'context-project',
+    name: 'unrelated-css-reference',
+    description: 'Historical CSS color palette reference.',
+    body: 'Unrelated visual design details. '.repeat(80),
+    type: 'reference',
+    agent_id: 'context-agent',
+  });
+  for (let index = 0; index < 8; index++) {
+    await callTool('memory_write', {
+      project_id: 'context-project',
+      name: `unrelated-reference-${index}`,
+      description: `Unrelated archived reference ${index} about a different subsystem and historical details.`,
+      body: 'Unrelated historical information. '.repeat(40),
+      type: 'reference',
+      agent_id: 'context-agent',
+    });
+  }
+  await callTool('task_create', {
+    project_id: 'context-project',
+    title: 'Fix SQLite locking',
+    description: 'Continue the database concurrency fix.',
+    assigned_agent_id: 'context-agent',
+    priority: 90,
+  });
+  await callTool('task_create', {
+    project_id: 'context-project',
+    title: 'Update CSS palette',
+    description: 'Unrelated design task.',
+    priority: 10,
+  });
+  await callTool('session_log', {
+    project_id: 'context-project',
+    agent_id: 'context-agent',
+    started_at: new Date().toISOString(),
+    summary: 'Investigated SQLite locking and selected WAL with short transactions.',
+  });
+
+  const result = await callTool('context_get', {
+    project_id: 'context-project',
+    task: 'Fix SQLite locking and database concurrency',
+    agent_id: 'context-agent',
+    max_tokens: 650,
+  });
+  const text = textContent(result);
+  const packet = JSON.parse(text);
+
+  assert.ok(estimateTokens(text) <= 650);
+  assert.ok(packet.estimated_tokens <= 650);
+  assert.equal(packet.active_tasks[0].title, 'Fix SQLite locking');
+  assert.equal(packet.memories[0].name, 'sqlite-locking-decision');
+  assert.ok(packet.memories[0].reasons.includes('task-term-match'));
+  assert.equal('body' in packet.memories[0], false);
+  assert.ok(packet.omitted.memories >= 1);
+
+  const resumed = await callTool('workspace_resume', {
+    project_id: 'context-project',
+    agent_id: 'context-agent',
+    max_tokens: 200,
+  });
+  const resumeText = textContent(resumed);
+  const resumePacket = JSON.parse(resumeText);
+
+  assert.ok(estimateTokens(resumeText) <= 200);
+  assert.equal(resumePacket.project.id, 'context-project');
 });
 
 test('reopening a completed task clears completed_at', async () => {

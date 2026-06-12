@@ -11,6 +11,7 @@ import { registerTaskTools } from './tools/tasks.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerTelemetryTools } from './tools/telemetry.js';
 import { registerAgentTools } from './tools/agents.js';
+import { registerContextTools } from './tools/context.js';
 
 const PORT = parseInt(process.env.PORT || '3747', 10);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -30,8 +31,8 @@ export function createMcpServer(): McpServer {
     {
       instructions:
         'Shared context hub for AI agents. Register or reuse a stable agent_id when supported. ' +
-        'At session start: call project_list, then memory_list for the relevant project, ' +
-        'then task_list with your agent or client assignment and status=pending. ' +
+        'At session start, prefer one workspace_resume call with the current project, task, and token budget. ' +
+        'Use low-level project, memory, and task tools only when more detail is needed. ' +
         'At session end: call session_log, then memory_write for durable decisions.',
     }
   );
@@ -42,6 +43,7 @@ export function createMcpServer(): McpServer {
   registerSessionTools(server);
   registerTelemetryTools(server);
   registerAgentTools(server);
+  registerContextTools(server);
   return server;
 }
 

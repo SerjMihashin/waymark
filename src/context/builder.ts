@@ -1,0 +1,292 @@
+import { getDb } from '../db/client.js';
+import { MemoryNode, Project, Session, Task } from '../db/schema.js';
+import { estimateTokens } from '../telemetry/tokens.js';
+
+interface ContextMemory {
+  id: string;
+  name: string;
+  type: MemoryNode['type'];
+  summary: string;
+  updated_at: string;
+  source: 'project' | 'global';
+  score: number;
+  reasons: string[];
+  body?: string;
+}
+
+interface ContextTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: Task['status'];
+  priority: number;
+  assigned_to: string | null;
+  assigned_agent_id: string | null;
+  updated_at: string;
+}
+
+interface ContextSession {
+  id: string;
+  summary: string | null;
+  outcome: string | null;
+  agent_id: string | null;
+  client: string | null;
+  ended_at: string | null;
+}
+
+export interface ContextPacket {
+  project: {
+    id: string;
+    name: string;
+    root_path: string;
+    stack: string | null;
+    description: string | null;
+  };
+  task: string | null;
+  active_tasks: ContextTask[];
+  memories: ContextMemory[];
+  recent_sessions: ContextSession[];
+  omitted: {
+    active_tasks: number;
+    memories: number;
+    recent_sessions: number;
+  };
+  estimated_tokens: number;
+  max_tokens: number;
+}
+
+export interface BuildContextOptions {
+  projectId: string;
+  task?: string;
+  agentId?: string;
+  clientId?: string;
+  maxTokens: number;
+  memoryTypes?: MemoryNode['type'][];
+  includeSources?: boolean;
+}
+
+const TYPE_WEIGHT: Record<MemoryNode['type'], number> = {
+  handoff: 60,
+  decision: 50,
+  user: 45,
+  feedback: 35,
+  project: 30,
+  reference: 20,
+};
+
+function terms(value: string): Set<string> {
+  return new Set(
+    value.toLowerCase()
+      .split(/[^\p{L}\p{N}_-]+/u)
+      .map(term => term.trim())
+      .filter(term => term.length >= 3)
+  );
+}
+
+function overlapScore(queryTerms: Set<string>, value: string): number {
+  if (queryTerms.size === 0) return 0;
+  const valueTerms = terms(value);
+  let matches = 0;
+  for (const term of queryTerms) {
+    if (valueTerms.has(term)) matches++;
+  }
+  return matches * 25;
+}
+
+function recencyScore(updatedAt: string): number {
+  const ageMs = Date.now() - new Date(updatedAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs < 0) return 10;
+  const ageDays = ageMs / 86_400_000;
+  if (ageDays <= 1) return 15;
+  if (ageDays <= 7) return 10;
+  if (ageDays <= 30) return 5;
+  return 0;
+}
+
+function compact(value: string | null, maxChars: number): string | null {
+  if (value === null) return null;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function packetTokens(packet: Omit<ContextPacket, 'estimated_tokens'> | ContextPacket): number {
+  const serializable = { ...packet, estimated_tokens: 999_999 };
+  return estimateTokens(JSON.stringify(serializable, null, 2));
+}
+
+function fits(packet: ContextPacket): boolean {
+  return packetTokens(packet) <= packet.max_tokens;
+}
+
+function finalize(packet: ContextPacket): ContextPacket {
+  packet.estimated_tokens = packetTokens(packet);
+  return packet;
+}
+
+function addWithinBudget<T>(
+  packet: ContextPacket,
+  target: T[],
+  item: T,
+): boolean {
+  target.push(item);
+  if (fits(packet)) return true;
+  target.pop();
+  return false;
+}
+
+function parseTags(tags: string | null): string {
+  if (!tags) return '';
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.join(' ') : tags;
+  } catch {
+    return tags;
+  }
+}
+
+export function buildContextPacket(options: BuildContextOptions): ContextPacket | null {
+  const db = getDb();
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(options.projectId) as
+    Project | undefined;
+  if (!project) return null;
+
+  const queryTerms = terms(options.task ?? '');
+  const packet: ContextPacket = {
+    project: {
+      id: project.id,
+      name: compact(project.name, 120) ?? project.name,
+      root_path: compact(project.root_path, 240) ?? project.root_path,
+      stack: compact(project.stack, 240),
+      description: compact(project.description, 360),
+    },
+    task: compact(options.task ?? null, 500),
+    active_tasks: [],
+    memories: [],
+    recent_sessions: [],
+    omitted: {
+      active_tasks: 0,
+      memories: 0,
+      recent_sessions: 0,
+    },
+    estimated_tokens: 0,
+    max_tokens: options.maxTokens,
+  };
+
+  // Very small budgets keep identity and task while progressively trimming metadata.
+  if (!fits(packet)) packet.project.description = null;
+  if (!fits(packet)) packet.project.stack = null;
+  if (!fits(packet)) packet.project.root_path = '';
+  if (!fits(packet) && packet.task) packet.task = compact(packet.task, 160);
+
+  const taskRows = db.prepare(`
+    SELECT * FROM tasks
+    WHERE project_id = ?
+      AND status IN ('pending', 'in_progress')
+    ORDER BY
+      CASE WHEN assigned_agent_id = ? THEN 0
+           WHEN assigned_to = ? THEN 1
+           WHEN assigned_agent_id IS NULL AND assigned_to IS NULL THEN 2
+           ELSE 3 END,
+      priority DESC,
+      updated_at DESC
+  `).all(
+    options.projectId,
+    options.agentId ?? null,
+    options.clientId ?? null
+  ) as Task[];
+
+  for (const row of taskRows) {
+    const item: ContextTask = {
+      id: row.id,
+      title: compact(row.title, 180) ?? row.title,
+      description: compact(row.description, 320),
+      status: row.status,
+      priority: row.priority,
+      assigned_to: row.assigned_to,
+      assigned_agent_id: row.assigned_agent_id,
+      updated_at: row.updated_at,
+    };
+    if (!addWithinBudget(packet, packet.active_tasks, item)) {
+      packet.omitted.active_tasks++;
+    }
+  }
+
+  const memories = db.prepare(`
+    SELECT * FROM memory_nodes
+    WHERE project_id = ? OR project_id IS NULL
+    ORDER BY updated_at DESC
+  `).all(options.projectId) as MemoryNode[];
+
+  const rankedMemories = memories
+    .filter(row => !options.memoryTypes || options.memoryTypes.includes(row.type))
+    .map(row => {
+      const searchable = [
+        row.name,
+        row.description ?? '',
+        row.body,
+        parseTags(row.tags),
+      ].join(' ');
+      const projectBoost = row.project_id === options.projectId ? 20 : 0;
+      const termScore = overlapScore(queryTerms, searchable);
+      const recentScore = recencyScore(row.updated_at);
+      const reasons = [
+        row.type,
+        row.project_id === options.projectId ? 'project-memory' : 'global-memory',
+      ];
+      if (termScore > 0) reasons.push('task-term-match');
+      if (recentScore >= 10) reasons.push('recent');
+      return {
+        row,
+        score: TYPE_WEIGHT[row.type] +
+          projectBoost +
+          termScore +
+          recentScore,
+        reasons,
+      };
+    })
+    .sort((a, b) => b.score - a.score || b.row.updated_at.localeCompare(a.row.updated_at));
+
+  for (const { row, score, reasons } of rankedMemories) {
+    const item: ContextMemory = {
+      id: row.id,
+      name: compact(row.name, 120) ?? row.name,
+      type: row.type,
+      summary: compact(row.description || row.body, 360) ?? '',
+      updated_at: row.updated_at,
+      source: row.project_id === options.projectId ? 'project' : 'global',
+      score,
+      reasons,
+    };
+    if (options.includeSources) {
+      item.body = compact(row.body, 1000) ?? '';
+    }
+
+    if (!addWithinBudget(packet, packet.memories, item)) {
+      packet.omitted.memories++;
+    }
+  }
+
+  const sessions = db.prepare(`
+    SELECT * FROM sessions
+    WHERE project_id = ? AND summary IS NOT NULL
+    ORDER BY COALESCE(ended_at, started_at) DESC
+    LIMIT 20
+  `).all(options.projectId) as Session[];
+
+  for (const row of sessions) {
+    const item: ContextSession = {
+      id: row.id,
+      summary: compact(row.summary, 360),
+      outcome: row.outcome,
+      agent_id: row.agent_id,
+      client: row.client ?? row.surface,
+      ended_at: row.ended_at,
+    };
+    if (!addWithinBudget(packet, packet.recent_sessions, item)) {
+      packet.omitted.recent_sessions++;
+    }
+  }
+
+  return finalize(packet);
+}

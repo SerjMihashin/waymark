@@ -19,6 +19,35 @@ const HTTP_MODE = process.argv.includes('--http');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
+// Compact daily-work toolset exposed by default. Eager clients (e.g. Codex) inject
+// every tool schema into context on every turn, so a smaller default set directly
+// cuts recurring token cost. The full admin/telemetry surface is opt-in via HUB_TOOLS.
+const CORE_TOOLS = new Set([
+  'workspace_resume',
+  'context_get',
+  'memory_write',
+  'memory_read',
+  'memory_search',
+  'task_create',
+  'task_list',
+  'task_claim',
+  'task_update',
+  'session_log',
+]);
+
+function toolProfile(): 'core' | 'full' {
+  return (process.env.HUB_TOOLS || 'core').toLowerCase() === 'full' ? 'full' : 'core';
+}
+
+// Wrap registerTool so only tools allowed by the active profile are exposed.
+function applyToolProfile(server: McpServer): void {
+  if (toolProfile() === 'full') return;
+  const original = server.registerTool.bind(server);
+  (server as unknown as { registerTool: (name: string, ...rest: unknown[]) => unknown }).registerTool =
+    (name: string, ...rest: unknown[]) =>
+      CORE_TOOLS.has(name) ? (original as (...a: unknown[]) => unknown)(name, ...rest) : undefined;
+}
+
 export interface HttpAppOptions {
   host?: string;
   allowedHosts?: string[];
@@ -30,13 +59,14 @@ export function createMcpServer(): McpServer {
     { name: 'claudeplus-hub', version: '1.0.0' },
     {
       instructions:
-        'Shared context hub for AI agents. Register or reuse a stable agent_id when supported. ' +
-        'At session start, prefer one workspace_resume call with the current project, task, and token budget. ' +
-        'Use low-level project, memory, and task tools only when more detail is needed. ' +
-        'At session end: call session_log, then memory_write for durable decisions.',
+        'Shared context hub for AI agents. At session start call one workspace_resume ' +
+        '(project, task, token budget). Use memory/task tools as needed; at session end ' +
+        'call session_log, then memory_write for durable decisions. Default profile exposes a ' +
+        'compact core toolset; set HUB_TOOLS=full for admin/telemetry/agent tools.',
     }
   );
 
+  applyToolProfile(server);
   registerProjectTools(server);
   registerMemoryTools(server);
   registerTaskTools(server);

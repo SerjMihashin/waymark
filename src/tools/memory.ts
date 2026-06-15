@@ -19,18 +19,17 @@ export function registerMemoryTools(server: McpServer): void {
   server.registerTool(
     'memory_write',
     {
-      description: 'Create or replace a named memory node for a project (or globally if no project_id). ' +
-        'Use for decisions, feedback, facts, handoff notes.',
+      description: 'Create or replace a named memory node (project-scoped, or global if no project_id).',
       inputSchema: z.object({
-        project_id: z.string().optional().describe('Project id. Omit for global memory.'),
-        name: z.string().describe('Short kebab-case slug, e.g. "auth-approach"'),
-        description: z.string().describe('One-line summary of what this memory contains'),
+        project_id: z.string().optional().describe('omit for global'),
+        name: z.string().describe('kebab-case slug'),
+        description: z.string().describe('one-line summary'),
         type: z.enum(['user', 'feedback', 'project', 'reference', 'handoff', 'decision'])
           .default('project'),
-        body: z.string().describe('Full memory content in markdown'),
-        tags: z.array(z.string()).optional().describe('Tags for search, e.g. ["auth", "security"]'),
-        surface: z.string().default('claude-code').describe('Which Claude surface is writing this'),
-        agent_id: z.string().optional().describe('Registered agent identity writing this record'),
+        body: z.string().describe('markdown body'),
+        tags: z.array(z.string()).optional(),
+        surface: z.string().default('claude-code'),
+        agent_id: z.string().optional(),
         origin_session: z.string().optional(),
         status: memoryStatus.optional(),
         importance: z.number().int().min(0).max(100).optional(),
@@ -39,7 +38,7 @@ export function registerMemoryTools(server: McpServer): void {
         source_ref: z.string().optional(),
         valid_from: z.string().optional(),
         valid_until: z.string().optional(),
-        supersedes_id: z.string().optional().describe('Older memory record replaced by this one'),
+        supersedes_id: z.string().optional().describe('id this record replaces'),
         last_verified_at: z.string().optional(),
       }),
     },

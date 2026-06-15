@@ -8,25 +8,22 @@ export function registerTaskTools(server: McpServer): void {
   server.registerTool(
     'task_create',
     {
-      description: 'Create a handoff task to be picked up by another agent or client.',
+      description: 'Create a handoff task for another agent or client.',
       inputSchema: z.object({
-        title: z.string().describe('Short imperative title, e.g. "Scrape competitor pricing"'),
-        description: z.string().describe('Full context: what to do and why'),
+        title: z.string().describe('short imperative title'),
+        description: z.string().describe('what to do and why'),
         project_id: z.string().optional(),
-        created_by: z.string().default('claude-code')
-          .describe('Legacy originating surface/client identifier'),
-        created_by_agent: z.string().optional().describe('Registered agent creating the task'),
-        assigned_to: z.string().optional()
-          .describe('Legacy target surface/client identifier'),
-        assigned_agent_id: z.string().optional().describe('Specific registered agent assigned to the task'),
+        created_by: z.string().default('claude-code'),
+        created_by_agent: z.string().optional(),
+        assigned_to: z.string().optional(),
+        assigned_agent_id: z.string().optional(),
         required_capabilities: z.array(z.string()).default([])
-          .describe('Capabilities required from the claiming agent'),
+          .describe('capabilities the claiming agent must have'),
         dependency_ids: z.array(z.string()).default([])
-          .describe('Tasks that must be done before this task can be claimed'),
-        priority: z.number().int().min(0).max(100).default(50)
-          .describe('0-100, higher is more urgent'),
+          .describe('tasks that must finish first'),
+        priority: z.number().int().min(0).max(100).default(50).describe('0-100, higher = more urgent'),
         context_json: z.record(z.string(), z.unknown()).optional()
-          .describe('Structured handoff data: file paths, URLs, selectors, etc.'),
+          .describe('structured handoff data: paths, URLs, selectors'),
       }),
     },
     ({
@@ -95,17 +92,16 @@ export function registerTaskTools(server: McpServer): void {
   server.registerTool(
     'task_list',
     {
-      description: 'List tasks filtered by status, project, or assigned surface. ' +
-        'Call at session start with assigned_to=<your surface> and status=pending to find pending handoffs.',
+      description: 'List tasks by status, project, assignee, or blocker.',
       inputSchema: z.object({
         status: z.enum(['pending', 'in_progress', 'done', 'cancelled']).optional(),
         project_id: z.string().optional(),
-        assigned_to: z.string().optional().describe('Filter by target surface'),
-        assigned_agent_id: z.string().optional().describe('Filter by registered target agent'),
-        created_by: z.string().optional().describe('Filter by originating surface'),
-        created_by_agent: z.string().optional().describe('Filter by registered creator agent'),
-        claimed_by_agent: z.string().optional().describe('Filter by agent that claimed the task'),
-        blocked: z.boolean().optional().describe('Filter tasks by presence of a blocker'),
+        assigned_to: z.string().optional(),
+        assigned_agent_id: z.string().optional(),
+        created_by: z.string().optional(),
+        created_by_agent: z.string().optional(),
+        claimed_by_agent: z.string().optional(),
+        blocked: z.boolean().optional(),
         limit: z.number().int().min(1).max(100).default(20),
       }),
       annotations: { readOnlyHint: true },
@@ -155,14 +151,13 @@ export function registerTaskTools(server: McpServer): void {
   server.registerTool(
     'task_update',
     {
-      description: 'Update task status or add completion notes. ' +
-        'Set status to in_progress when starting, done when finished.',
+      description: 'Update task status, progress, blocker, or notes.',
       inputSchema: z.object({
-        id: z.string().describe('Task UUID'),
+        id: z.string(),
         status: z.enum(['pending', 'in_progress', 'done', 'cancelled']).optional(),
-        description: z.string().optional().describe('Append notes or update description'),
-        context_json: z.record(z.string(), z.unknown()).optional().describe('Update handoff context'),
-        blocker: z.string().nullable().optional().describe('Current blocker; null clears it'),
+        description: z.string().optional(),
+        context_json: z.record(z.string(), z.unknown()).optional(),
+        blocker: z.string().nullable().optional().describe('null clears it'),
         progress: z.number().int().min(0).max(100).optional(),
       }),
     },

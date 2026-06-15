@@ -8,8 +8,7 @@ export function registerSessionTools(server: McpServer): void {
   server.registerTool(
     'session_log',
     {
-      description: 'Record a session summary at the end of work. ' +
-        'Call this at the end of significant agent work to preserve history and identity.',
+      description: 'Record a session summary at the end of significant agent work.',
       inputSchema: z.object({
         project_id: z.string().optional(),
         agent_id: z.string().optional(),
@@ -17,12 +16,11 @@ export function registerSessionTools(server: McpServer): void {
         model: z.string().optional(),
         client: z.string().optional(),
         client_session_id: z.string().optional(),
-        surface: z.string().default('claude-code')
-          .describe('Legacy client/surface identifier kept for compatibility'),
-        started_at: z.string().describe('ISO datetime when session started'),
-        summary: z.string().describe('Brief narrative: what was accomplished, what decisions were made'),
-        files_touched: z.array(z.string()).optional().describe('List of file paths modified'),
-        commits_made: z.array(z.string()).optional().describe('List of git commit SHAs or messages'),
+        surface: z.string().default('claude-code'),
+        started_at: z.string().describe('ISO datetime session started'),
+        summary: z.string().describe('what was accomplished and decided'),
+        files_touched: z.array(z.string()).optional(),
+        commits_made: z.array(z.string()).optional(),
         outcome: z.enum(['completed', 'blocked', 'partial']).default('completed'),
       }),
     },

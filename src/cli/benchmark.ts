@@ -174,6 +174,9 @@ function textFromResult(result: unknown): string {
 }
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  // The benchmark CLI inherently drives telemetry/experiment tools, so it always
+  // needs the full tool surface regardless of the ambient HUB_TOOLS profile.
+  process.env.HUB_TOOLS = 'full';
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'claudeplus-benchmark-cli', version: '1.0.0' });
   const server = createMcpServer();

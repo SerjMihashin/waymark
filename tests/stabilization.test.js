@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudeplus-test-'));
 process.env.DB_PATH = path.join(testDir, 'hub.db');
+process.env.HUB_TOOLS = 'full'; // exercise the full tool surface in tests
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');

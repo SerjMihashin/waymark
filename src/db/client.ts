@@ -2,7 +2,13 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'hub.db');
+// Anchor the default DB to the install location (…/ClaudePlus/data/hub.db) via
+// __dirname (dist/db → ../../data), NOT process.cwd(). Clients spawn the hub from
+// arbitrary project directories; a cwd-relative path would open a separate empty
+// DB per project and silently break the shared memory/task store. DB_PATH still
+// overrides (tests, benchmarks, custom deployments).
+const DEFAULT_DB_PATH = path.resolve(__dirname, '..', '..', 'data', 'hub.db');
+const DB_PATH = process.env.DB_PATH || DEFAULT_DB_PATH;
 
 let _db: Database.Database | null = null;
 

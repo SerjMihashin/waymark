@@ -228,7 +228,19 @@ app.post('/api/translate', async (req, res) => {
 
 app.use(express.static(__dirname));
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   process.stdout.write(`ClaudePlus dashboard (read-only) → http://${HOST}:${PORT}\n`);
   process.stdout.write(`Reading: ${DB_PATH}\n`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    process.stderr.write(
+      `\n[!] Порт ${PORT} уже занят другим процессом (вероятно, старый дашборд ещё работает).\n` +
+      `    Останови его или запусти на другом порту: $env:DASH_PORT='4748'; npm run dashboard\n`,
+    );
+  } else {
+    process.stderr.write(`\n[!] Не удалось запустить дашборд: ${err.message}\n`);
+  }
+  process.exit(1);
 });

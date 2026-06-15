@@ -69,31 +69,27 @@ claude mcp add --scope user claudeplus node "D:\Projects\ClaudePlus\dist\server.
 2. Открыть настройки Claude → **Connectors** → **Add custom connector**
 3. Вставить URL: `http://localhost:3747/mcp`
 
-## MCP-инструменты
+## MCP-инструменты (28)
 
-| Инструмент | Описание |
+Полный справочник с сигнатурами — в [AGENTS.md](./AGENTS.md). Группы:
+
+| Группа | Инструменты |
 |---|---|
-| `project_list` | Все проекты со статусом |
-| `project_get` | Детали одного проекта |
-| `project_upsert` | Создать / обновить проект |
-| `project_set_status` | Сменить статус |
-| `memory_write` | Записать факт / решение |
-| `memory_read` | Прочитать запись по имени |
-| `memory_list` | Список памяти проекта |
-| `memory_search` | Полнотекстовый поиск (FTS5) |
-| `task_create` | Создать задачу-handoff |
-| `task_list` | Список задач с фильтрами |
-| `task_update` | Обновить статус задачи |
-| `session_log` | Записать итог сессии |
+| Контекст | `workspace_resume`, `context_get` |
+| Проекты | `project_list/get/upsert/set_status` |
+| Память | `memory_write/read/list/search/set_status/feedback` |
+| Задачи | `task_create/list/update/claim/release/add_dependency` |
+| Агенты | `agent_register/get/list/set_status` |
+| Сессии и телеметрия | `session_log`, `usage_report`, `experiment_create/list/update/summary` |
 
 ## Протокол работы
 
-**В начале каждой сессии:**
+**В начале сессии — один компактный вызов** (заменяет старую связку из трёх):
 ```
-project_list()                                    # ориентация
-memory_list(project_id="D--Projects-Kuda83")      # контекст проекта
-task_list(assigned_to="claude-code", status="pending")  # входящие задачи
+workspace_resume(project_id="D--Projects-Kuda83", task="...", max_tokens=1200)
 ```
+Возвращает проект, активные задачи и ранжированную память в пределах токен-бюджета.
+Детали тянутся по id (`memory_read`, `context_get`) только при необходимости.
 
 **В конце сессии:**
 ```
@@ -122,11 +118,17 @@ npm run import:memory  # импорт из ~/.claude/projects/*/memory/
 ## Структура БД
 
 ```sql
-projects      -- реестр проектов
-memory_nodes  -- общая память (+ FTS5-индекс для поиска)
-tasks         -- очередь задач для handoff
-sessions      -- лог сессий по поверхностям
+projects           -- реестр проектов
+memory_nodes       -- общая память (+ FTS5-индекс, статусы, importance/confidence)
+memory_feedback    -- оценки полезности записей
+tasks              -- очередь задач + handoff (claim, capabilities)
+task_dependencies  -- зависимости между задачами
+agents             -- provider-neutral идентичности агентов
+sessions           -- лог сессий (+ agent/provider/model/usage)
+experiments        -- A/B-бенчмарки Hub vs no-Hub
 ```
+
+Схема ведётся миграциями `001..005` в `src/db/migrations/` (обратно-совместимо).
 
 БД находится в `data/hub.db` и монтируется как volume в контейнере.
 

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ClaudePlus Hub — Dashboard</title>
+  <!-- Tailwind vendored locally (no external CDN): offline-capable, no SRI/CDN-compromise risk. -->
+  <script src="./vendor/tailwind.js"></script>
+  <style>
+    body { background: #0a0d14; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 6px; }
+    .card { background: #0f1420; border: 1px solid #1c2333; }
+  </style>
+</head>
+<body class="text-slate-200 font-sans">
+  <div class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-[#0a0d14] z-10">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-slate-900">C+</div>
+        <div>
+          <h1 class="text-lg font-semibold leading-tight">ClaudePlus Hub</h1>
+          <p class="text-xs text-slate-500" id="dbPath">read-only dashboard</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <select id="projectFilter" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+          <option value="">Все проекты</option>
+        </select>
+        <span class="text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">read-only</span>
+      </div>
+    </header>
+
+    <div class="flex flex-1 min-h-0">
+      <!-- Sidebar -->
+      <nav class="w-48 border-r border-slate-800 p-3 space-y-1 shrink-0" id="nav"></nav>
+      <!-- Content -->
+      <main class="flex-1 overflow-auto p-6" id="content">
+        <div class="text-slate-500">Загрузка…</div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const TABS = [
+      { id: 'overview', label: 'Обзор', icon: '◧' },
+      { id: 'projects', label: 'Проекты', icon: '▤' },
+      { id: 'tasks',    label: 'Задачи',  icon: '☑' },
+      { id: 'memory',   label: 'Память',  icon: '✦' },
+      { id: 'sessions', label: 'Сессии',  icon: '◷' },
+      { id: 'agents',   label: 'Агенты',  icon: '◉' },
+      { id: 'experiments', label: 'Бенчмарки', icon: '⚖' },
+    ];
+    let current = 'overview';
+    let projectId = '';
+    let memQuery = '';
+
+    const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+    const esc = (s) => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    const fmtDate = (s) => s ? new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z')).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    async function api(p) { const r = await fetch(p); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+    const pq = () => projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      nav.innerHTML = '';
+      for (const t of TABS) {
+        const active = t.id === current;
+        nav.appendChild(el(`
+          <button data-tab="${t.id}" class="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 transition
+            ${active ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:bg-slate-800/60 border border-transparent'}">
+            <span class="text-base opacity-80">${t.icon}</span> ${t.label}
+          </button>`));
+      }
+      nav.querySelectorAll('button').forEach(b => b.onclick = () => { current = b.dataset.tab; renderNav(); route(); });
+    }
+
+    const badge = (text, cls) => `<span class="text-xs px-2 py-0.5 rounded-full ${cls}">${esc(text)}</span>`;
+    const statusColor = (s) => ({
+      active:'bg-emerald-500/10 text-emerald-400', completed:'bg-sky-500/10 text-sky-400',
+      done:'bg-sky-500/10 text-sky-400', pending:'bg-amber-500/10 text-amber-400',
+      in_progress:'bg-indigo-500/10 text-indigo-300', paused:'bg-slate-500/10 text-slate-400',
+      archived:'bg-slate-700/30 text-slate-500', blocked:'bg-rose-500/10 text-rose-400',
+      superseded:'bg-slate-700/30 text-slate-500', stale:'bg-orange-500/10 text-orange-400',
+    }[s] || 'bg-slate-700/30 text-slate-400');
+
+    function card(inner) { return `<div class="card rounded-xl p-4">${inner}</div>`; }
+    function grid(cards) { return `<div class="grid gap-3">${cards.join('')}</div>`; }
+    function title(t, sub) { return `<div class="mb-4"><h2 class="text-xl font-semibold">${esc(t)}</h2>${sub ? `<p class="text-sm text-slate-500 mt-0.5">${esc(sub)}</p>` : ''}</div>`; }
+    function empty(t) { return `<div class="card rounded-xl p-8 text-center text-slate-500">${esc(t)}</div>`; }
+
+    async function route() {
+      const c = document.getElementById('content');
+      c.innerHTML = '<div class="text-slate-500">Загрузка…</div>';
+      try {
+        if (current === 'overview') return renderOverview(c);
+        if (current === 'projects') return renderProjects(c);
+        if (current === 'tasks') return renderTasks(c);
+        if (current === 'memory') return renderMemory(c);
+        if (current === 'sessions') return renderSessions(c);
+        if (current === 'agents') return renderAgents(c);
+        if (current === 'experiments') return renderExperiments(c);
+      } catch (e) {
+        c.innerHTML = `<div class="card rounded-xl p-6 text-rose-400">Ошибка: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function renderOverview(c) {
+      const o = await api('/api/overview');
+      document.getElementById('dbPath').textContent = o.db_path;
+      const tiles = Object.entries(o.counts).map(([k, v]) => card(`
+        <div class="text-3xl font-bold">${v}</div>
+        <div class="text-sm text-slate-500 mt-1 capitalize">${esc(k)}</div>`));
+      const statuses = o.tasks_by_status.length
+        ? o.tasks_by_status.map(s => `<div class="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
+            <span>${badge(s.status, statusColor(s.status))}</span><span class="text-slate-400">${s.c}</span></div>`).join('')
+        : '<div class="text-slate-500">нет задач</div>';
+      c.innerHTML = title('Обзор', 'Сводка общего состояния хаба')
+        + `<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">${tiles.join('')}</div>`
+        + card(`<h3 class="font-semibold mb-3">Задачи по статусам</h3>${statuses}`);
+    }
+
+    async function renderProjects(c) {
+      const rows = await api('/api/projects');
+      c.innerHTML = title('Проекты', `${rows.length} зарегистрировано`) + (rows.length ? grid(rows.map(p => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold">${esc(p.name)} ${badge(p.status, statusColor(p.status))}</div>
+            <div class="text-xs text-slate-500 mt-0.5 font-mono">${esc(p.id)}</div>
+          </div>
+        </div>
+        ${p.description ? `<p class="text-sm text-slate-400 mt-2">${esc(p.description)}</p>` : ''}
+        <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          <span>📁 ${esc(p.root_path)}</span>${p.stack ? `<span>🧱 ${esc(p.stack)}</span>` : ''}
+          <span>обновлён ${fmtDate(p.updated_at)}</span>
+        </div>`))) : empty('Проектов пока нет'));
+    }
+
+    async function renderTasks(c) {
+      const rows = await api('/api/tasks' + pq());
+      c.innerHTML = title('Задачи', 'Общая очередь и хэндофф между агентами') + (rows.length ? grid(rows.map(t => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold">${esc(t.title)}</div>
+          <div class="flex gap-1.5 shrink-0">${badge(t.status, statusColor(t.status))}<span class="text-xs px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400">P${t.priority}</span></div>
+        </div>
+        ${t.description ? `<p class="text-sm text-slate-400 mt-2">${esc(t.description)}</p>` : ''}
+        ${t.blocker ? `<p class="text-sm text-rose-400 mt-2">⛔ ${esc(t.blocker)}</p>` : ''}
+        <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          ${t.project_name ? `<span>📦 ${esc(t.project_name)}</span>` : ''}
+          <span>создал: ${esc(t.created_by || '—')}</span>
+          ${t.claimed_agent_name || t.claimed_by_agent ? `<span>🔒 ${esc(t.claimed_agent_name || t.claimed_by_agent)}</span>` : (t.assigned_to ? `<span>→ ${esc(t.assigned_to)}</span>` : '')}
+          ${t.required_capabilities?.length ? `<span>🎯 ${t.required_capabilities.map(esc).join(', ')}</span>` : ''}
+          <span>${fmtDate(t.created_at)}</span>
+        </div>`))) : empty('Задач нет'));
+    }
+
+    async function renderMemory(c) {
+      const params = new URLSearchParams();
+      if (projectId) params.set('project_id', projectId);
+      if (memQuery) params.set('q', memQuery);
+      const rows = await api('/api/memory' + (params.toString() ? '?' + params : ''));
+      c.innerHTML = title('Память', 'Общие знания/решения, доступные всем агентам')
+        + `<div class="mb-4"><input id="memSearch" value="${esc(memQuery)}" placeholder="Поиск по памяти…"
+             class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500" /></div>`
+        + (rows.length ? grid(rows.map(m => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold">${esc(m.name)} ${badge(m.type, 'bg-violet-500/10 text-violet-300')} ${m.status !== 'active' ? badge(m.status, statusColor(m.status)) : ''}</div>
+          <span class="text-xs text-slate-500 shrink-0">★ ${m.importance ?? '—'}</span>
+        </div>
+        ${m.description ? `<p class="text-sm text-slate-300 mt-1">${esc(m.description)}</p>` : ''}
+        <details class="mt-2"><summary class="text-xs text-indigo-400 cursor-pointer">показать содержимое</summary>
+          <pre class="text-xs text-slate-400 mt-2 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-3">${esc(m.body)}</pre></details>
+        <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          ${m.tags?.length ? `<span>🏷 ${m.tags.map(esc).join(', ')}</span>` : ''}
+          <span>${esc(m.surface || '')}</span><span>${fmtDate(m.updated_at)}</span>
+        </div>`))) : empty('Ничего не найдено'));
+      const inp = document.getElementById('memSearch');
+      let to; inp.oninput = () => { clearTimeout(to); to = setTimeout(() => { memQuery = inp.value.trim(); route(); }, 300); };
+      inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+    }
+
+    async function renderSessions(c) {
+      const rows = await api('/api/sessions' + pq());
+      c.innerHTML = title('Сессии', 'История: кто из агентов что сделал') + (rows.length ? grid(rows.map(s => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold text-sm">${esc(s.agent_name || s.client || s.surface || 'agent')}
+            <span class="text-slate-500 font-normal">${[s.provider, s.model].filter(Boolean).map(esc).join(' · ')}</span></div>
+          ${s.outcome ? badge(s.outcome, statusColor(s.outcome)) : ''}
+        </div>
+        ${s.summary ? `<p class="text-sm text-slate-400 mt-2">${esc(s.summary)}</p>` : ''}
+        <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          ${s.project_name ? `<span>📦 ${esc(s.project_name)}</span>` : ''}
+          ${s.files_touched?.length ? `<span>📝 ${s.files_touched.length} файлов</span>` : ''}
+          ${s.commits_made?.length ? `<span>⎇ ${s.commits_made.length} коммитов</span>` : ''}
+          <span>${fmtDate(s.started_at)}</span>
+        </div>`))) : empty('Сессий нет'));
+    }
+
+    async function renderAgents(c) {
+      const rows = await api('/api/agents');
+      c.innerHTML = title('Агенты', 'Зарегистрированные участники команды') + (rows.length ? grid(rows.map(a => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold">${esc(a.display_name)} ${badge(a.status, statusColor(a.status))}</div>
+          <span class="text-xs text-slate-500">${[a.provider, a.model, a.client].filter(Boolean).map(esc).join(' · ')}</span>
+        </div>
+        ${a.capabilities?.length ? `<div class="text-xs text-slate-400 mt-2">🎯 ${a.capabilities.map(esc).join(', ')}</div>` : ''}
+        <div class="text-xs text-slate-500 mt-1 font-mono">${esc(a.id)}</div>`))) : empty('Агентов пока нет'));
+    }
+
+    async function renderExperiments(c) {
+      const rows = await api('/api/experiments');
+      c.innerHTML = title('Бенчмарки', 'A/B-эксперименты Hub vs no-Hub') + (rows.length ? grid(rows.map(e => card(`
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold">${esc(e.name)} ${badge(e.status, statusColor(e.status))}</div>
+          <span class="text-xs text-slate-500">${esc(e.scenario)}</span>
+        </div>
+        ${e.description ? `<p class="text-sm text-slate-400 mt-2">${esc(e.description)}</p>` : ''}
+        <div class="text-xs text-slate-500 mt-2 flex gap-4">
+          ${e.project_name ? `<span>📦 ${esc(e.project_name)}</span>` : ''}<span>цель: ${e.target_runs} прогонов</span><span class="font-mono">${esc(e.id)}</span>
+        </div>`))) : empty('Экспериментов нет'));
+    }
+
+    async function init() {
+      renderNav();
+      try {
+        const projects = await api('/api/projects');
+        const sel = document.getElementById('projectFilter');
+        for (const p of projects) sel.appendChild(el(`<option value="${esc(p.id)}">${esc(p.name)}</option>`));
+        sel.onchange = () => { projectId = sel.value; route(); };
+      } catch {}
+      route();
+    }
+    init();
+  </script>
+</body>
+</html>

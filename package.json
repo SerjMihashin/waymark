@@ -23,6 +23,7 @@
     "start": "node dist/server.js",
     "start:http": "node dist/server.js --http",
     "benchmark": "node dist/cli/benchmark.js",
+    "dashboard": "node dashboard/server.mjs",
     "backup:db": "tsx scripts/backup-db.ts",
     "import:memory": "tsx scripts/import-existing-memory.ts"
   },

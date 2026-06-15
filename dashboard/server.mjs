@@ -10,6 +10,9 @@
 import express from 'express';
 import Database from 'better-sqlite3';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +143,84 @@ app.get('/api/experiments', (_req, res) => {
        LEFT JOIN projects p ON p.id = e.project_id
        ORDER BY e.created_at DESC`,
   ).all());
+});
+
+// ---- Optional Russian translation (opt-in, cached) -------------------------
+// Translates English hub content on demand via the user's existing DeepSeek
+// key, reusing the same resolution dsc uses (env → ~/.deepseek-code/settings.json).
+// The key stays server-side; every unique string is translated once and cached
+// to disk, so repeat views cost nothing. Off unless the UI requests it.
+
+const CACHE_DIR = path.join(__dirname, '.cache');
+const CACHE_FILE = path.join(CACHE_DIR, 'translations.json');
+let trCache = {};
+try { trCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')); } catch { trCache = {}; }
+let cacheDirty = false;
+function persistCache() {
+  if (!cacheDirty) return;
+  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); fs.writeFileSync(CACHE_FILE, JSON.stringify(trCache)); cacheDirty = false; } catch { /* non-fatal */ }
+}
+setInterval(persistCache, 5000).unref();
+
+function translateConfig() {
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.deepseek-code', 'settings.json'), 'utf8')); } catch { /* none */ }
+  const apiKey = (process.env.DEEPSEEK_API_KEY || settings.apiKey || '').trim();
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || settings.baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+  const model = process.env.TRANSLATE_MODEL || 'deepseek-v4-flash';
+  return { apiKey, baseUrl, model };
+}
+
+const hash = (s) => crypto.createHash('sha1').update(s).digest('hex');
+
+async function translateBatch(texts, cfg) {
+  const prompt = 'Translate each string in the following JSON array to Russian. '
+    + 'Return ONLY a JSON array of strings, same length and order. Translate prose only; '
+    + 'keep code, identifiers, slugs, file paths, URLs, and IDs unchanged.\n\n'
+    + JSON.stringify(texts);
+  const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify({
+      model: cfg.model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: 'You are a precise translator. Output strictly valid JSON, nothing else.' },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+  if (!resp.ok) throw new Error(`translate API ${resp.status}`);
+  const data = await resp.json();
+  let content = data.choices?.[0]?.message?.content ?? '';
+  content = content.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  const arr = JSON.parse(content);
+  if (!Array.isArray(arr) || arr.length !== texts.length) throw new Error('translation shape mismatch');
+  return arr.map(String);
+}
+
+app.use(express.json({ limit: '4mb' }));
+
+app.post('/api/translate', async (req, res) => {
+  const texts = Array.isArray(req.body?.texts) ? req.body.texts.filter(t => typeof t === 'string') : [];
+  const cfg = translateConfig();
+  const out = {};
+  const missing = [];
+  for (const t of texts) {
+    const k = hash(t);
+    if (trCache[k] != null) out[t] = trCache[k];
+    else if (!missing.includes(t)) missing.push(t);
+  }
+  if (missing.length === 0) return res.json({ translations: out });
+  if (!cfg.apiKey) return res.json({ translations: out, error: 'no_key' });
+  try {
+    const translated = await translateBatch(missing, cfg);
+    missing.forEach((src, i) => { trCache[hash(src)] = translated[i]; out[src] = translated[i]; });
+    cacheDirty = true; persistCache();
+    res.json({ translations: out });
+  } catch (e) {
+    res.json({ translations: out, error: String(e.message || e) });
+  }
 });
 
 app.use(express.static(__dirname));

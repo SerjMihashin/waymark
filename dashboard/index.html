@@ -28,6 +28,8 @@
         <select id="projectFilter" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
           <option value="">Все проекты</option>
         </select>
+        <button id="trToggle" title="Перевод содержимого на русский (машинный, кэшируется)"
+          class="text-xs px-3 py-1.5 rounded-lg border transition border-slate-700 text-slate-400 hover:bg-slate-800/60">🌐 RU</button>
         <span class="text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">read-only</span>
       </div>
     </header>
@@ -94,16 +96,71 @@
       const c = document.getElementById('content');
       c.innerHTML = '<div class="text-slate-500">Загрузка…</div>';
       try {
-        if (current === 'overview') return renderOverview(c);
-        if (current === 'projects') return renderProjects(c);
-        if (current === 'tasks') return renderTasks(c);
-        if (current === 'memory') return renderMemory(c);
-        if (current === 'sessions') return renderSessions(c);
-        if (current === 'agents') return renderAgents(c);
-        if (current === 'experiments') return renderExperiments(c);
+        const r = {
+          overview: renderOverview, projects: renderProjects, tasks: renderTasks,
+          memory: renderMemory, sessions: renderSessions, agents: renderAgents,
+          experiments: renderExperiments,
+        }[current];
+        if (r) await r(c);
+        await translateSection();
       } catch (e) {
         c.innerHTML = `<div class="card rounded-xl p-6 text-rose-400">Ошибка: ${esc(e.message)}</div>`;
       }
+    }
+
+    // ---- Translation (opt-in, server-cached) --------------------------------
+    let translateOn = localStorage.getItem('dash_translate') === '1';
+    const trCache = new Map(); // session cache of source → translation
+
+    async function translateTexts(texts) {
+      const need = [...new Set(texts)].filter(t => t && !trCache.has(t));
+      if (need.length) {
+        try {
+          const r = await fetch('/api/translate', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ texts: need }),
+          });
+          const data = await r.json();
+          for (const [src, tr] of Object.entries(data.translations || {})) trCache.set(src, tr);
+          if (data.error === 'no_key') {
+            const btn = document.getElementById('trToggle');
+            if (btn) btn.title = 'Не найден ключ DeepSeek (env DEEPSEEK_API_KEY или ~/.deepseek-code/settings.json)';
+          }
+        } catch { /* leave originals */ }
+      }
+      const map = {};
+      for (const t of texts) if (trCache.has(t)) map[t] = trCache.get(t);
+      return map;
+    }
+
+    async function translateSection() {
+      if (!translateOn) return;
+      const els = [...document.querySelectorAll('#content .tr')].filter(e => !e.dataset.tr);
+      if (!els.length) return;
+      const map = await translateTexts(els.map(e => e.textContent.trim()));
+      for (const e of els) {
+        const o = e.textContent.trim();
+        if (map[o]) { e.dataset.orig = o; e.textContent = map[o]; e.dataset.tr = '1'; }
+      }
+    }
+
+    // Memory bodies are large — translate only when the user expands them.
+    document.addEventListener('toggle', async (ev) => {
+      const d = ev.target;
+      if (!translateOn || !d.open || d.tagName !== 'DETAILS') return;
+      const pre = d.querySelector('.tr-lazy:not([data-tr])');
+      if (!pre) return;
+      const o = pre.textContent;
+      const map = await translateTexts([o]);
+      if (map[o]) { pre.dataset.orig = o; pre.textContent = map[o]; pre.dataset.tr = '1'; }
+    }, true);
+
+    function syncTrButton() {
+      const b = document.getElementById('trToggle');
+      b.classList.toggle('bg-indigo-500/15', translateOn);
+      b.classList.toggle('text-indigo-300', translateOn);
+      b.classList.toggle('border-indigo-500/30', translateOn);
+      b.classList.toggle('text-slate-400', !translateOn);
     }
 
     async function renderOverview(c) {
@@ -130,7 +187,7 @@
             <div class="text-xs text-slate-500 mt-0.5 font-mono">${esc(p.id)}</div>
           </div>
         </div>
-        ${p.description ? `<p class="text-sm text-slate-400 mt-2">${esc(p.description)}</p>` : ''}
+        ${p.description ? `<p class="text-sm text-slate-400 mt-2 tr">${esc(p.description)}</p>` : ''}
         <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
           <span>📁 ${esc(p.root_path)}</span>${p.stack ? `<span>🧱 ${esc(p.stack)}</span>` : ''}
           <span>обновлён ${fmtDate(p.updated_at)}</span>
@@ -141,11 +198,11 @@
       const rows = await api('/api/tasks' + pq());
       c.innerHTML = title('Задачи', 'Общая очередь и хэндофф между агентами') + (rows.length ? grid(rows.map(t => card(`
         <div class="flex items-start justify-between gap-3">
-          <div class="font-semibold">${esc(t.title)}</div>
+          <div class="font-semibold tr">${esc(t.title)}</div>
           <div class="flex gap-1.5 shrink-0">${badge(t.status, statusColor(t.status))}<span class="text-xs px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400">P${t.priority}</span></div>
         </div>
-        ${t.description ? `<p class="text-sm text-slate-400 mt-2">${esc(t.description)}</p>` : ''}
-        ${t.blocker ? `<p class="text-sm text-rose-400 mt-2">⛔ ${esc(t.blocker)}</p>` : ''}
+        ${t.description ? `<p class="text-sm text-slate-400 mt-2 tr">${esc(t.description)}</p>` : ''}
+        ${t.blocker ? `<p class="text-sm text-rose-400 mt-2 tr">⛔ ${esc(t.blocker)}</p>` : ''}
         <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
           ${t.project_name ? `<span>📦 ${esc(t.project_name)}</span>` : ''}
           <span>создал: ${esc(t.created_by || '—')}</span>
@@ -168,9 +225,9 @@
           <div class="font-semibold">${esc(m.name)} ${badge(m.type, 'bg-violet-500/10 text-violet-300')} ${m.status !== 'active' ? badge(m.status, statusColor(m.status)) : ''}</div>
           <span class="text-xs text-slate-500 shrink-0">★ ${m.importance ?? '—'}</span>
         </div>
-        ${m.description ? `<p class="text-sm text-slate-300 mt-1">${esc(m.description)}</p>` : ''}
+        ${m.description ? `<p class="text-sm text-slate-300 mt-1 tr">${esc(m.description)}</p>` : ''}
         <details class="mt-2"><summary class="text-xs text-indigo-400 cursor-pointer">показать содержимое</summary>
-          <pre class="text-xs text-slate-400 mt-2 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-3">${esc(m.body)}</pre></details>
+          <pre class="text-xs text-slate-400 mt-2 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-3 tr-lazy">${esc(m.body)}</pre></details>
         <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
           ${m.tags?.length ? `<span>🏷 ${m.tags.map(esc).join(', ')}</span>` : ''}
           <span>${esc(m.surface || '')}</span><span>${fmtDate(m.updated_at)}</span>
@@ -188,7 +245,7 @@
             <span class="text-slate-500 font-normal">${[s.provider, s.model].filter(Boolean).map(esc).join(' · ')}</span></div>
           ${s.outcome ? badge(s.outcome, statusColor(s.outcome)) : ''}
         </div>
-        ${s.summary ? `<p class="text-sm text-slate-400 mt-2">${esc(s.summary)}</p>` : ''}
+        ${s.summary ? `<p class="text-sm text-slate-400 mt-2 tr">${esc(s.summary)}</p>` : ''}
         <div class="text-xs text-slate-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
           ${s.project_name ? `<span>📦 ${esc(s.project_name)}</span>` : ''}
           ${s.files_touched?.length ? `<span>📝 ${s.files_touched.length} файлов</span>` : ''}
@@ -212,10 +269,10 @@
       const rows = await api('/api/experiments');
       c.innerHTML = title('Бенчмарки', 'A/B-эксперименты Hub vs no-Hub') + (rows.length ? grid(rows.map(e => card(`
         <div class="flex items-start justify-between gap-3">
-          <div class="font-semibold">${esc(e.name)} ${badge(e.status, statusColor(e.status))}</div>
+          <div class="font-semibold"><span class="tr">${esc(e.name)}</span> ${badge(e.status, statusColor(e.status))}</div>
           <span class="text-xs text-slate-500">${esc(e.scenario)}</span>
         </div>
-        ${e.description ? `<p class="text-sm text-slate-400 mt-2">${esc(e.description)}</p>` : ''}
+        ${e.description ? `<p class="text-sm text-slate-400 mt-2 tr">${esc(e.description)}</p>` : ''}
         <div class="text-xs text-slate-500 mt-2 flex gap-4">
           ${e.project_name ? `<span>📦 ${esc(e.project_name)}</span>` : ''}<span>цель: ${e.target_runs} прогонов</span><span class="font-mono">${esc(e.id)}</span>
         </div>`))) : empty('Экспериментов нет'));
@@ -223,6 +280,13 @@
 
     async function init() {
       renderNav();
+      syncTrButton();
+      document.getElementById('trToggle').onclick = () => {
+        translateOn = !translateOn;
+        localStorage.setItem('dash_translate', translateOn ? '1' : '0');
+        syncTrButton();
+        route();
+      };
       try {
         const projects = await api('/api/projects');
         const sel = document.getElementById('projectFilter');

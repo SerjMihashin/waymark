@@ -28,6 +28,7 @@
         <select id="projectFilter" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
           <option value="">Все проекты</option>
         </select>
+        <span id="trStatus" class="text-xs text-slate-500"></span>
         <button id="trToggle" title="Перевод содержимого на русский (машинный, кэшируется)"
           class="text-xs px-3 py-1.5 rounded-lg border transition border-slate-700 text-slate-400 hover:bg-slate-800/60">🌐 RU</button>
         <span class="text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">read-only</span>
@@ -111,23 +112,39 @@
     // ---- Translation (opt-in, server-cached) --------------------------------
     let translateOn = localStorage.getItem('dash_translate') === '1';
     const trCache = new Map(); // session cache of source → translation
+    const setStatus = (t, cls = 'text-slate-500') => {
+      const s = document.getElementById('trStatus');
+      if (s) { s.textContent = t; s.className = 'text-xs ' + cls; }
+    };
 
     async function translateTexts(texts) {
       const need = [...new Set(texts)].filter(t => t && !trCache.has(t));
       if (need.length) {
+        setStatus('перевожу…');
         try {
           const r = await fetch('/api/translate', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ texts: need }),
           });
+          if (!r.ok) { setStatus(`⚠ сервер ${r.status} — перезапусти npm run dashboard`, 'text-rose-400'); return mapFrom(texts); }
           const data = await r.json();
           for (const [src, tr] of Object.entries(data.translations || {})) trCache.set(src, tr);
           if (data.error === 'no_key') {
-            const btn = document.getElementById('trToggle');
-            if (btn) btn.title = 'Не найден ключ DeepSeek (env DEEPSEEK_API_KEY или ~/.deepseek-code/settings.json)';
+            setStatus('⚠ нет ключа DeepSeek', 'text-amber-400');
+            document.getElementById('trToggle').title = 'Не найден ключ DeepSeek (env DEEPSEEK_API_KEY или ~/.deepseek-code/settings.json)';
+          } else if (data.error) {
+            setStatus('⚠ ошибка перевода: ' + data.error, 'text-rose-400');
+          } else {
+            setStatus('✓ переведено', 'text-emerald-400');
+            setTimeout(() => { if (translateOn) setStatus(''); }, 1500);
           }
-        } catch { /* leave originals */ }
+        } catch (e) {
+          setStatus('⚠ нет связи с сервером перевода', 'text-rose-400');
+        }
       }
+      return mapFrom(texts);
+    }
+    function mapFrom(texts) {
       const map = {};
       for (const t of texts) if (trCache.has(t)) map[t] = trCache.get(t);
       return map;
@@ -285,6 +302,7 @@
         translateOn = !translateOn;
         localStorage.setItem('dash_translate', translateOn ? '1' : '0');
         syncTrButton();
+        if (!translateOn) setStatus('');
         route();
       };
       try {

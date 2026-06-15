@@ -211,14 +211,17 @@ app.post('/api/translate', async (req, res) => {
     if (trCache[k] != null) out[t] = trCache[k];
     else if (!missing.includes(t)) missing.push(t);
   }
-  if (missing.length === 0) return res.json({ translations: out });
-  if (!cfg.apiKey) return res.json({ translations: out, error: 'no_key' });
+  if (missing.length === 0) { process.stdout.write(`[translate] ${texts.length} texts, all cached\n`); return res.json({ translations: out }); }
+  if (!cfg.apiKey) { process.stdout.write('[translate] NO API KEY (set DEEPSEEK_API_KEY or apiKey in ~/.deepseek-code/settings.json)\n'); return res.json({ translations: out, error: 'no_key' }); }
   try {
+    process.stdout.write(`[translate] calling ${cfg.baseUrl} model=${cfg.model} for ${missing.length} new texts…\n`);
     const translated = await translateBatch(missing, cfg);
     missing.forEach((src, i) => { trCache[hash(src)] = translated[i]; out[src] = translated[i]; });
     cacheDirty = true; persistCache();
+    process.stdout.write(`[translate] ok (${missing.length} translated, ${Object.keys(trCache).length} cached total)\n`);
     res.json({ translations: out });
   } catch (e) {
+    process.stdout.write(`[translate] ERROR: ${String(e.message || e)}\n`);
     res.json({ translations: out, error: String(e.message || e) });
   }
 });

@@ -11,4 +11,5 @@ data/backups/
 data/attachments/
 .env
 *.js.map
-/D*ProjectsClaudePlus*/
+# guard against tools that strip backslashes from Windows paths and mkdir them literally
+/D:*

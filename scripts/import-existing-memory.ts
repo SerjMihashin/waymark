@@ -21,6 +21,42 @@ function projectSlugToId(slug: string): string {
   return slug;
 }
 
+function slugifySegment(name: string): string {
+  return name.replace(/[^A-Za-z0-9]/g, '-');
+}
+
+// A slug like "D--Projects-ai-trader" encodes an absolute Windows path with every
+// non-alphanumeric character replaced by "-", so the reverse mapping is ambiguous
+// ("-" may stand for "\", "_" or a space). Resolve by walking the filesystem and
+// matching slugified directory names against the remaining slug.
+function resolveSlugToPath(slug: string): string | null {
+  const driveMatch = slug.match(/^([A-Za-z])--(.+)$/);
+  if (!driveMatch) return null;
+
+  let current = `${driveMatch[1]}:\\`;
+  let rest = driveMatch[2];
+
+  while (rest.length > 0) {
+    if (!fs.existsSync(current)) return null;
+    const children = fs.readdirSync(current, { withFileTypes: true }).filter(d => d.isDirectory());
+
+    let matched: string | null = null;
+    let matchedLen = -1;
+    for (const child of children) {
+      const s = slugifySegment(child.name);
+      if ((rest === s || rest.startsWith(`${s}-`)) && s.length > matchedLen) {
+        matched = child.name;
+        matchedLen = s.length;
+      }
+    }
+    if (!matched) return null;
+
+    current = path.join(current, matched);
+    rest = rest.slice(matchedLen + 1);
+  }
+  return current;
+}
+
 function importProject(projectSlug: string): void {
   const db = getDb();
   const memDir = path.join(CLAUDE_PROJECTS_DIR, projectSlug, 'memory');
@@ -28,14 +64,15 @@ function importProject(projectSlug: string): void {
   if (!fs.existsSync(memDir)) return;
 
   const projectId = projectSlugToId(projectSlug);
-  const rootPath = projectSlug.replace(/--/g, '\\').replace(/-(?=[A-Z])/g, ' ').replace(/ /g, '-');
+  const rootPath = resolveSlugToPath(projectSlug);
 
   const existingProject = db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId);
   if (!existingProject) {
+    const name = rootPath ? path.basename(rootPath) : projectSlug;
     db.prepare(`
       INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
       VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))
-    `).run(projectId, projectSlug.split('-').pop() || projectSlug, projectSlug);
+    `).run(projectId, name, rootPath ?? projectSlug);
   }
 
   const files = fs.readdirSync(memDir).filter(f => f.endsWith('.md'));

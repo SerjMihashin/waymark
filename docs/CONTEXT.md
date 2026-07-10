@@ -19,6 +19,16 @@ Use once at the beginning of a session:
 
 The task is optional. When supplied, it improves memory ranking.
 
+**When to use which:** `workspace_resume` is the session opener — call it exactly
+once, at the start, to restore the whole workspace picture (tasks, sessions,
+handoffs, top memories). `context_get` is the mid-session refiner — call it when
+you hit a *new sub-task* and want memories re-ranked for it (optionally filtered
+by `memory_types` or with bodies via `include_sources`). If you only need one
+known record, use `memory_read(id)` instead of either.
+
+The packet may include `notices` — short protocol nudges (for example, an
+unregistered `agent_id`). They cost a few tokens and appear only when relevant.
+
 ## `context_get`
 
 Use when the agent needs context for a specific task:

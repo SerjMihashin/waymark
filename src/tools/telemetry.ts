@@ -385,10 +385,25 @@ export function registerTelemetryTools(server: McpServer): void {
         };
       });
 
+      const warnings: string[] = [];
+      if (reports.length === 0) {
+        warnings.push('No usage reports recorded for this experiment yet.');
+      }
+      for (const cohort of summaries) {
+        if (cohort.without_hub.runs === 0 || cohort.with_hub.runs === 0) {
+          const missing = cohort.without_hub.runs === 0 ? 'without_hub' : 'with_hub';
+          warnings.push(
+            `Cohort ${cohort.measurement}/${cohort.model ?? 'any'}/${cohort.client ?? 'any'} ` +
+            `has no "${missing}" runs — savings are not comparable until both variants are recorded.`
+          );
+        }
+      }
+
       return jsonContent({
         experiment,
         total_reports: reports.length,
         cohorts: summaries,
+        ...(warnings.length ? { warnings } : {}),
       });
     }
   );

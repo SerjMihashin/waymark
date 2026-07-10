@@ -305,7 +305,9 @@ export function registerMemoryTools(server: McpServer): void {
         return {
           content: [{
             type: 'text',
-            text: 'Invalid search query. Use words or quoted phrases without incomplete FTS operators.',
+            text: `FTS5 could not parse the query ${JSON.stringify(query)}. ` +
+              'Use plain words ("auth token"), quoted phrases ("\\"session log\\""), or prefix search ("bench*"). ' +
+              'Characters like -, :, ( ) are FTS operators — wrap terms containing them in double quotes.',
           }],
           isError: true,
         };

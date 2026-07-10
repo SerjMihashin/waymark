@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudeplus-test-'));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'waymark-test-'));
 process.env.DB_PATH = path.join(testDir, 'hub.db');
 process.env.HUB_TOOLS = 'full'; // exercise the full tool surface in tests
 
@@ -77,7 +77,7 @@ function httpPost(port, pathName, body, headers = {}) {
 
 test.before(async () => {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  client = new Client({ name: 'claudeplus-tests', version: '1.0.0' });
+  client = new Client({ name: 'waymark-tests', version: '1.0.0' });
   mcpServer = createMcpServer();
 
   await Promise.all([
@@ -544,10 +544,10 @@ test('malformed FTS query returns a stable client-facing error', async () => {
   const result = await callTool('memory_search', { query: 'foo OR' });
 
   assert.equal(result.isError, true);
-  assert.equal(
-    textContent(result),
-    'Invalid search query. Use words or quoted phrases without incomplete FTS operators.'
-  );
+  const message = textContent(result);
+  assert.match(message, /FTS5 could not parse the query/);
+  assert.match(message, /"foo OR"/, 'error should echo the offending query');
+  assert.match(message, /double quotes/, 'error should explain how to escape operators');
 });
 
 test('HTTP app rejects untrusted Host and Origin headers', async () => {
@@ -620,7 +620,7 @@ test('stateless HTTP transport handles an MCP initialize request', async () => {
     });
 
     assert.equal(response.status, 200);
-    assert.match(response.body, /"name":"claudeplus-hub"/);
+    assert.match(response.body, /"name":"waymark-hub"/);
   } finally {
     await new Promise((resolve, reject) => {
       listener.close(error => error ? reject(error) : resolve());

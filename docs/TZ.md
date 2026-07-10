@@ -106,9 +106,9 @@ MCP-сервер (`waymark-hub`) с общим SQLite-хранилищем. Вс
 
 ### projects
 ```
-id TEXT PK        -- D--Projects-Kuda83
-name TEXT         -- Kuda83
-root_path TEXT    -- D:\Projects\Kuda83
+id TEXT PK        -- D--Projects-MyApp
+name TEXT         -- MyApp
+root_path TEXT    -- D:\Projects\MyApp
 stack TEXT        -- Laravel 12 + Nuxt 4 + MySQL
 status TEXT       -- active | paused | archived
 description TEXT
@@ -190,8 +190,8 @@ Settings → Connectors → `http://localhost:3747/mcp`
 4. Подхватывает задачу, выполняет, `task_update(status="done")`
 
 ### Сценарий Б: Возобновление работы в Desktop
-1. Claude Desktop: `project_get(name="Kuda83")`
-2. `memory_list(project_id="D--Projects-Kuda83")`
+1. Claude Desktop: `project_get(name="MyApp")`
+2. `memory_list(project_id="D--Projects-MyApp")`
 3. `task_list(status="pending")` — видит незакрытые задачи от Code
 4. Продолжает работу с полным контекстом
 

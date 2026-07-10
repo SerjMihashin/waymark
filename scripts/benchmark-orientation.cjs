@@ -29,8 +29,12 @@ const CORE_TOOLS_SCHEMA_TOKENS = 1800;
 // Same assumed answer size for both variants; savings come from input only.
 const OUTPUT_TOKENS = 400;
 
+// AGENTS.md / CLAUDE.md are local-only agent instruction files (not in the
+// public repo); when absent they simply drop out of the cold-read corpus.
 function fileTokens(rel) {
-  return estimateTokens(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
+  const abs = path.join(ROOT, rel);
+  if (!fs.existsSync(abs)) return 0;
+  return estimateTokens(fs.readFileSync(abs, 'utf8'));
 }
 
 function gitLogTokens(lines) {

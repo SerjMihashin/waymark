@@ -122,7 +122,6 @@ agents, experiments, telemetry).
 | Agents | `agent_register/get/list/set_status` |
 | Sessions & telemetry | `session_log`, `usage_report`, `experiment_create/list/update/summary` |
 
-Full signatures and the agent-facing manual: [AGENTS.md](./AGENTS.md).
 Deep dives: [docs/CONTEXT.md](./docs/CONTEXT.md),
 [docs/MEMORY_LIFECYCLE.md](./docs/MEMORY_LIFECYCLE.md),
 [docs/TASK_COORDINATION.md](./docs/TASK_COORDINATION.md),

@@ -13,3 +13,7 @@ data/attachments/
 *.js.map
 # guard against tools that strip backslashes from Windows paths and mkdir them literally
 /D:*
+
+# agent-facing instruction files stay local (machine-specific paths, private project names)
+CLAUDE.md
+AGENTS.md

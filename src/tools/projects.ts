@@ -32,8 +32,8 @@ export function registerProjectTools(server: McpServer): void {
     {
       description: 'Get full details for a single project by its id or name.',
       inputSchema: z.object({
-        id: z.string().optional().describe('Project id (directory slug), e.g. "D--Projects-Kuda83"'),
-        name: z.string().optional().describe('Human name, e.g. "Kuda83". Case-insensitive partial match.'),
+        id: z.string().optional().describe('Project id (directory slug), e.g. "D--Projects-MyApp"'),
+        name: z.string().optional().describe('Human name, e.g. "MyApp". Case-insensitive partial match.'),
       }),
       annotations: { readOnlyHint: true },
     },
@@ -60,9 +60,9 @@ export function registerProjectTools(server: McpServer): void {
     {
       description: 'Create or update a project record. Use to register a new project or update stack/description.',
       inputSchema: z.object({
-        id: z.string().describe('Directory slug id, e.g. "D--Projects-Kuda83"'),
+        id: z.string().describe('Directory slug id, e.g. "D--Projects-MyApp"'),
         name: z.string().describe('Human-readable project name'),
-        root_path: z.string().describe('Absolute path on disk, e.g. "D:\\\\Projects\\\\Kuda83"'),
+        root_path: z.string().describe('Absolute path on disk, e.g. "D:\\\\Projects\\\\MyApp"'),
         stack: z.string().optional().describe('Tech stack description, e.g. "Laravel 12 + Nuxt 4 + MySQL"'),
         description: z.string().optional().describe('Short project description'),
         status: z.enum(['active', 'paused', 'archived']).optional(),

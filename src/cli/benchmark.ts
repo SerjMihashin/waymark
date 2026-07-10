@@ -27,12 +27,12 @@ const NUMBER_FIELDS = new Set([
 
 function usage(): string {
   return `Usage:
-  claudeplus-benchmark create --name <name> --scenario <scenario> [--project-id <id>] [--target-runs 5]
-  claudeplus-benchmark record --file <run.json>
-  claudeplus-benchmark record --experiment-id <id> --variant <without_hub|with_hub> [usage flags]
-  claudeplus-benchmark list [--project-id <id>] [--status <active|completed|cancelled>]
-  claudeplus-benchmark summary --id <experiment-id>
-  claudeplus-benchmark complete --id <experiment-id>
+  waymark-benchmark create --name <name> --scenario <scenario> [--project-id <id>] [--target-runs 5]
+  waymark-benchmark record --file <run.json>
+  waymark-benchmark record --experiment-id <id> --variant <without_hub|with_hub> [usage flags]
+  waymark-benchmark list [--project-id <id>] [--status <active|completed|cancelled>]
+  waymark-benchmark summary --id <experiment-id>
+  waymark-benchmark complete --id <experiment-id>
 
 Common record flags:
   --project-id, --session-id, --experiment-id, --variant
@@ -178,7 +178,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   // needs the full tool surface regardless of the ambient HUB_TOOLS profile.
   process.env.HUB_TOOLS = 'full';
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'claudeplus-benchmark-cli', version: '1.0.0' });
+  const client = new Client({ name: 'waymark-benchmark-cli', version: '1.0.0' });
   const server = createMcpServer();
 
   try {

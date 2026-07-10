@@ -1,4 +1,4 @@
-# ClaudePlus Hub — запуск
+# Waymark Hub — запуск
 # Подключение: http://localhost:3747/mcp
 #
 # Через Podman (рекомендуется):
@@ -37,5 +37,5 @@ if ($portInUse) {
     exit 0
 }
 
-Write-Host "Starting ClaudePlus Hub on http://localhost:3747/mcp" -ForegroundColor Green
+Write-Host "Starting Waymark Hub on http://localhost:3747/mcp" -ForegroundColor Green
 node dist/server.js --http

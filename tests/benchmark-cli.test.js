@@ -21,7 +21,7 @@ function runCli(dbPath, args) {
 }
 
 test('benchmark CLI records and summarizes an isolated A/B experiment', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'claudeplus-cli-test-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'waymark-cli-test-'));
   const dbPath = path.join(directory, 'hub.db');
 
   try {

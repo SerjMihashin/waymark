@@ -1,10 +1,10 @@
 {
-  "name": "claudeplus-hub",
+  "name": "waymark-hub",
   "version": "1.0.0",
   "description": "Shared context and coordination MCP hub for AI agents",
   "main": "dist/server.js",
   "bin": {
-    "claudeplus-benchmark": "dist/cli/benchmark.js"
+    "waymark-benchmark": "dist/cli/benchmark.js"
   },
   "files": [
     "dist",

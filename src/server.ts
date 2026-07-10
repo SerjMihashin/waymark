@@ -56,7 +56,7 @@ export interface HttpAppOptions {
 
 export function createMcpServer(): McpServer {
   const server = new McpServer(
-    { name: 'claudeplus-hub', version: '1.0.0' },
+    { name: 'waymark-hub', version: '1.0.0' },
     {
       instructions:
         'Shared context hub for AI agents. At session start call one workspace_resume ' +
@@ -127,7 +127,7 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', server: 'claudeplus-hub', version: '1.0.0' });
+    res.json({ status: 'ok', server: 'waymark-hub', version: '1.0.0' });
   });
 
   app.post('/mcp', async (req: Request, res: Response) => {
@@ -175,7 +175,7 @@ export async function startHttp(): Promise<HttpServer> {
   const app = createHttpApp();
   return await new Promise<HttpServer>((resolve, reject) => {
     const listener = app.listen(PORT, HOST, () => {
-      process.stderr.write(`ClaudePlus Hub listening on http://${HOST}:${PORT}/mcp\n`);
+      process.stderr.write(`Waymark Hub listening on http://${HOST}:${PORT}/mcp\n`);
       resolve(listener);
     });
     listener.on('error', reject);

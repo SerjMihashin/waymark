@@ -5,7 +5,7 @@
 services:
   hub:
     build: .
-    container_name: claudeplus-hub
+    container_name: waymark-hub
     ports:
       - "127.0.0.1:3747:3747"
     environment:

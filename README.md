@@ -1,140 +1,160 @@
-# ClaudePlus Hub
+# Waymark
 
-Локальный MCP-сервер для объединения всех Claude-поверхностей в единое рабочее пространство.
+**Shared memory and handoff hub for AI agents.** A waymark is a trail sign left
+for whoever walks the path next — Waymark does the same for agent sessions:
+Claude Code finishes work, and the next session of Codex, Claude Desktop, or any
+other MCP client starts *already knowing* what was done, what was decided, and
+what to do next.
 
-## Проблема
+No retelling. No re-reading the repo. One token-budgeted call.
 
-Claude Desktop, Claude Code, Claude.ai web и browser agent — изолированные сессии. Каждый раз при переключении теряется контекст: что делалось, какие решения приняты, в каком состоянии проект.
+## Why
 
-## Решение
+Every new agent session starts cold: it re-reads files, re-asks questions, and
+burns tokens rediscovering context that another agent had five minutes ago.
+Waymark replaces that with a local MCP server over a single SQLite database
+shared by all your agents:
 
-Единый MCP-сервер с общей SQLite-базой, к которому подключаются все поверхности. Даёт:
+- **`workspace_resume`** — one call returns a compact packet (project metadata,
+  open tasks, ranked memory, recent sessions, active handoff) within a token
+  budget you set (default 1,200 tokens).
+- **Automatic handoffs** — `session_log(outcome: "partial", next_steps: [...])`
+  writes a handoff memory that tops the next agent's resume. Logging
+  `completed` retires it. No discipline required.
+- **Task queue with atomic claims** — `task_claim` guarantees only one agent
+  takes a task, with capability and dependency checks.
+- **Memory lifecycle** — supersede instead of accumulate; feedback ratings
+  demote stale records in ranking.
+- **Provider-neutral** — agents register with provider/model/client identity;
+  nothing in the core is tied to one vendor.
 
-- **Общий реестр проектов** — стек, статус, описание
-- **Общая память** — решения, факты, предпочтения с полнотекстовым поиском
-- **Очередь задач** — handoff между поверхностями без потери контекста
-- **Лог сессий** — история кто что делал и когда
+## Measured savings
 
-## Требования
+Continuation scenario (fresh session must orient in a project and name the next
+step), estimated cohort, reproducible via `node scripts/benchmark-orientation.cjs`:
 
-- Node.js v22+
-- Podman 5+ с podman-compose (или Docker)
+| | median tokens |
+|---|---|
+| Cold orientation (reading README, docs, sources, git log) | **13,540** |
+| Waymark resume (packet + core tool schemas + follow-up reads) | **3,392** |
+| **Net saving** | **74.9%** |
 
-## Установка
+The orientation context itself shrinks from ~13.1k tokens of raw files to a
+1.1k-token ranked packet (**−91.5%**) — and unlike cold reading, the packet
+contains what files can't: what the previous agent actually did and decided.
+The exact-token A/B protocol with live clients is in
+[docs/BENCHMARK_RUN.md](./docs/BENCHMARK_RUN.md).
 
-```powershell
-git clone <repo>
-cd ClaudePlus
+## Quick start
+
+Requires Node.js 22+.
+
+```bash
+git clone <this-repo> waymark && cd waymark
 npm install
 npm run build
+npm test          # 19 integration tests
 ```
 
-### Запуск через Podman (рекомендуется)
+### Connect Claude Code (stdio)
 
-```powershell
-podman compose up -d
+```bash
+claude mcp add --scope user waymark node "<path-to>/waymark/dist/server.js"
 ```
 
-Сервер доступен на `http://localhost:3747/mcp`
+Optional but recommended — auto-inject the resume packet into every new session
+via a `SessionStart` hook (zero tool calls spent on orientation), see
+[scripts/hooks/session-start-resume.cjs](./scripts/hooks/session-start-resume.cjs).
 
-### Запуск напрямую (без контейнера)
+### Connect Codex
 
-```powershell
-# Режим Claude Code (stdio) — автозапуск через MCP
-node dist/server.js
-
-# HTTP-режим для Desktop / Web
-.\start-hub.ps1
-# или: node dist/server.js --http
+```toml
+# ~/.codex/config.toml
+[mcp_servers.waymark]
+command = "node"
+args = ["<path-to>/waymark/dist/server.js"]
 ```
 
-## Подключение Claude-поверхностей
+### Connect Claude Desktop / web (HTTP)
 
-### Claude Code
-
-Уже настроено глобально. Проверить:
-```powershell
-claude mcp list
-# → claudeplus ✓ Connected
+```bash
+node dist/server.js --http   # listens on 127.0.0.1:3747
 ```
 
-Переподключить вручную:
-```powershell
-claude mcp add --scope user claudeplus node "D:\Projects\ClaudePlus\dist\server.js"
+Add a custom connector: `http://localhost:3747/mcp`. Also available via
+`docker compose up -d` / `podman compose up -d`.
+
+## The protocol
+
+**Session start — one call, not three:**
+
+```
+workspace_resume(project_id, task?, agent_id?, max_tokens=1200)
 ```
 
-### Claude Desktop / Claude.ai web
+**Session end:**
 
-1. Запустить hub: `podman compose up -d`
-2. Открыть настройки Claude → **Connectors** → **Add custom connector**
-3. Вставить URL: `http://localhost:3747/mcp`
+```
+session_log(started_at, summary, outcome, next_steps?)   # partial/blocked → auto-handoff
+memory_write(...)                                        # only durable decisions/facts
+```
 
-## MCP-инструменты (28)
+**Cross-agent handoff** happens automatically: agent A logs a `partial` session
+with `next_steps`; agent B's `workspace_resume` surfaces that handoff first,
+with the session trail and files touched. When someone logs `completed`, the
+handoff retires itself.
 
-Полный справочник с сигнатурами — в [AGENTS.md](./AGENTS.md). Группы:
+## Tool profiles
 
-| Группа | Инструменты |
+Greedy MCP clients inject every tool schema into context each turn. Waymark
+defaults to a **core** profile of 10 tools (~1.8k tokens instead of ~4.7k for
+all 28). Set `HUB_TOOLS=full` where you need the admin surface (projects,
+agents, experiments, telemetry).
+
+## Tools (28)
+
+| Group | Tools |
 |---|---|
-| Контекст | `workspace_resume`, `context_get` |
-| Проекты | `project_list/get/upsert/set_status` |
-| Память | `memory_write/read/list/search/set_status/feedback` |
-| Задачи | `task_create/list/update/claim/release/add_dependency` |
-| Агенты | `agent_register/get/list/set_status` |
-| Сессии и телеметрия | `session_log`, `usage_report`, `experiment_create/list/update/summary` |
+| Context | `workspace_resume`, `context_get` |
+| Memory | `memory_write/read/list/search/set_status/feedback` |
+| Tasks | `task_create/list/update/claim/release/add_dependency` |
+| Projects | `project_list/get/upsert/set_status` |
+| Agents | `agent_register/get/list/set_status` |
+| Sessions & telemetry | `session_log`, `usage_report`, `experiment_create/list/update/summary` |
 
-## Протокол работы
+Full signatures and the agent-facing manual: [AGENTS.md](./AGENTS.md).
+Deep dives: [docs/CONTEXT.md](./docs/CONTEXT.md),
+[docs/MEMORY_LIFECYCLE.md](./docs/MEMORY_LIFECYCLE.md),
+[docs/TASK_COORDINATION.md](./docs/TASK_COORDINATION.md),
+[docs/BENCHMARKING.md](./docs/BENCHMARKING.md).
 
-**В начале сессии — один компактный вызов** (заменяет старую связку из трёх):
-```
-workspace_resume(project_id="D--Projects-Kuda83", task="...", max_tokens=1200)
-```
-Возвращает проект, активные задачи и ранжированную память в пределах токен-бюджета.
-Детали тянутся по id (`memory_read`, `context_get`) только при необходимости.
+## Dashboard
 
-**В конце сессии:**
-```
-session_log(started_at=..., summary="...", outcome="completed")
-memory_write(name="decision-xyz", body="...")     # новые решения
-```
+`npm run dashboard` → read-only web panel on `http://localhost:4747`: projects,
+tasks, memory (FTS search), sessions, agents, benchmark results. Opens the DB
+in read-only mode — it physically cannot mutate hub state.
 
-**Handoff на другую поверхность:**
-```
-task_create(
-  title="Проверить верстку в браузере",
-  assigned_to="browser-agent",
-  context_json={"url": "http://localhost:3000", "page": "главная"}
-)
-```
+## Architecture
 
-## Разработка
-
-```powershell
-npm run dev         # stdio-режим с tsx (hot reload не нужен для MCP)
-npm run dev:http    # HTTP-режим
-npm run build       # компиляция TypeScript
-npm run import:memory  # импорт из ~/.claude/projects/*/memory/
+```
+src/server.ts            entry point: stdio / HTTP (--http), tool profiles
+src/db/client.ts         SQLite singleton (WAL) + idempotent migrations 001..005
+src/tools/               projects · memory · tasks · sessions · agents · context · telemetry
+src/context/builder.ts   deterministic ranking + token budget (no LLM calls)
+src/cli/benchmark.ts     A/B experiment CLI
+dashboard/               read-only Express panel
 ```
 
-## Структура БД
+Storage: SQLite + FTS5. The core never calls an LLM or any external service.
 
-```sql
-projects           -- реестр проектов
-memory_nodes       -- общая память (+ FTS5-индекс, статусы, importance/confidence)
-memory_feedback    -- оценки полезности записей
-tasks              -- очередь задач + handoff (claim, capabilities)
-task_dependencies  -- зависимости между задачами
-agents             -- provider-neutral идентичности агентов
-sessions           -- лог сессий (+ agent/provider/model/usage)
-experiments        -- A/B-бенчмарки Hub vs no-Hub
-```
+## Principles
 
-Схема ведётся миграциями `001..005` в `src/db/migrations/` (обратно-совместимо).
+- **Context on demand** — summaries + ids by default; bodies only when asked.
+- **Budget first** — every aggregated response fits a token budget.
+- **Evidence over retelling** — link files/commits/tasks instead of copying text.
+- **Replace, don't accumulate** — supersede outdated memory, no duplicates.
+- **Provider-agnostic** — any MCP client is a first-class citizen.
 
-БД находится в `data/hub.db` и монтируется как volume в контейнере.
+## License
 
-## Health check
-
-```powershell
-curl http://localhost:3747/health
-# {"status":"ok","server":"claudeplus-hub","version":"1.0.0"}
-```
+MIT

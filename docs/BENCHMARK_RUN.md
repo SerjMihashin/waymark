@@ -9,7 +9,7 @@ use case. General rules: see `BENCHMARKING.md`.
 
 ## Fixed task (identical for both variants)
 
-> You are a new agent session on the ClaudePlus project. Without any prior
+> You are a new agent session on the Waymark project. Without any prior
 > conversation, produce: (1) a 5–8 line summary of the current project state,
 > (2) the single most relevant next implementation step, (3) one risk to watch.
 > Stop after producing this — do not implement anything.
@@ -29,13 +29,13 @@ Score `result_quality` 0–100 by how complete/accurate (2) and (3) are.
 ## Variant procedures
 
 **without_hub** — disable the Hub so the agent must read files cold:
-1. In `~/.codex/config.toml` comment out `[mcp_servers.claudeplus]`; remove the
+1. In `~/.codex/config.toml` comment out `[mcp_servers.waymark]`; remove the
    project `.codex/config.toml`. Restart Codex.
 2. New session, paste the fixed task. Agent reads docs/git/memory files itself.
 3. Capture usage (below). Restore the config afterwards.
 
 **with_hub** — Hub available, agent starts with one call:
-1. Restore `[mcp_servers.claudeplus]` (default core profile is enough). Restart.
+1. Restore `[mcp_servers.waymark]` (default core profile is enough). Restart.
 2. New session, paste the fixed task. Agent calls
    `workspace_resume(project_id="D--Projects-ClaudePlus", task=<the task>)` first,
    reads detail by id only if needed.
@@ -78,5 +78,9 @@ npm run benchmark -- complete --id "c41c1fd8-aa7e-4f6a-8e1e-14dea408fd63"
 ```
 
 `net_token_saving_percent` = (median_without − median_with) / median_without × 100.
-MVP target: **≥20%** median net saving on continuation tasks, with quality and
-success rate held comparable. Token reduction alone does not pass.
+
+Targets: **≥70%** median net saving on the full continuation scenario and
+**≥90%** reduction of the orientation context payload itself, with quality and
+success rate held comparable (20% is the absolute floor, not the goal). Token
+reduction alone does not pass. The recorded estimated cohort
+(`scripts/benchmark-orientation.cjs`) measured **74.9%** / **91.5%**.

@@ -1,6 +1,6 @@
 # Agent identity
 
-ClaudePlus supports provider-neutral agent identities while retaining legacy
+Waymark supports provider-neutral agent identities while retaining legacy
 surface fields for existing clients.
 
 ## Identity fields

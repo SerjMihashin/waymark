@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ClaudePlus Hub — read-only observability dashboard.
+// Waymark Hub — read-only observability dashboard.
 //
 // A standalone viewer for the shared hub DB (projects, tasks, memory, sessions,
 // agents). It opens the SQLite file in READ-ONLY mode, so it can never mutate
@@ -229,7 +229,7 @@ app.post('/api/translate', async (req, res) => {
 app.use(express.static(__dirname));
 
 const server = app.listen(PORT, HOST, () => {
-  process.stdout.write(`ClaudePlus dashboard (read-only) → http://${HOST}:${PORT}\n`);
+  process.stdout.write(`Waymark dashboard (read-only) → http://${HOST}:${PORT}\n`);
   process.stdout.write(`Reading: ${DB_PATH}\n`);
 });
 

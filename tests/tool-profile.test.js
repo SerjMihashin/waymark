@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudeplus-profile-'));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'waymark-profile-'));
 process.env.DB_PATH = path.join(testDir, 'hub.db');
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');

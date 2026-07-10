@@ -78,11 +78,11 @@ npm run benchmark -- complete --id "<experiment-id>"
 Use `DB_PATH` to run against a separate benchmark database:
 
 ```powershell
-$env:DB_PATH = "D:\tmp\claudeplus-benchmark.db"
+$env:DB_PATH = "D:\tmp\waymark-benchmark.db"
 npm run benchmark -- list
 ```
 
-The installed package exposes the same CLI as `claudeplus-benchmark`.
+The installed package exposes the same CLI as `waymark-benchmark`.
 For repository development, run `npm run build` after source changes before
 using `npm run benchmark`. The benchmark command itself does not rebuild
 `dist`, so it can run while the MCP server is active on Windows.

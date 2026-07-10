@@ -47,6 +47,7 @@ export interface ContextPacket {
     description: string | null;
   };
   task: string | null;
+  notices?: string[];
   active_tasks: ContextTask[];
   memories: ContextMemory[];
   recent_sessions: ContextSession[];
@@ -186,6 +187,20 @@ export function buildContextPacket(options: BuildContextOptions): ContextPacket 
     estimated_tokens: 0,
     max_tokens: options.maxTokens,
   };
+
+  const notices: string[] = [];
+  if (options.agentId) {
+    const knownAgent = db.prepare('SELECT 1 FROM agents WHERE id = ?').get(options.agentId);
+    if (!knownAgent) {
+      notices.push(
+        `agent_id "${options.agentId}" is not registered; call agent_register (HUB_TOOLS=full) ` +
+        'or reuse a registered id so sessions and handoffs are attributed.'
+      );
+    }
+  } else {
+    notices.push('No agent_id supplied: pass a stable agent_id so other agents can see who did what.');
+  }
+  if (notices.length) packet.notices = notices;
 
   // Very small budgets keep identity and task while progressively trimming metadata.
   if (!fits(packet)) packet.project.description = null;

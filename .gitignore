@@ -17,3 +17,4 @@ data/attachments/
 # agent-facing instruction files stay local (machine-specific paths, private project names)
 CLAUDE.md
 AGENTS.md
+promo/

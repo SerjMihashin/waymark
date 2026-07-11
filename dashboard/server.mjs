@@ -14,8 +14,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 
 // Same default anchoring as the hub (…/ClaudePlus/data/hub.db); DB_PATH overrides.
 const DB_PATH = process.env.DB_PATH || path.resolve(__dirname, '..', 'data', 'hub.db');
@@ -30,7 +32,83 @@ function parseJson(value, fallback) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+// ---- Optional admin mode ----------------------------------------------------
+// WAYMARK_ADMIN=1 enables a small set of write actions. Writes go through the
+// hub's own MCP tools (in-process client), never raw SQL — so task_update /
+// memory_set_status semantics (completed_at, FTS, supersede) stay intact.
+const ADMIN = process.env.WAYMARK_ADMIN === '1';
+let adminClient = null;
+async function initAdmin() {
+  process.env.HUB_TOOLS = 'full';
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
+  const { createMcpServer } = require(path.join(__dirname, '..', 'dist', 'server.js'));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'waymark-dashboard-admin', version: '1.0.0' });
+  const mcpServer = createMcpServer();
+  await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+  return client;
+}
+
+async function adminTool(res, name, args) {
+  if (!adminClient) return res.status(403).json({ error: 'admin mode is off (set WAYMARK_ADMIN=1)' });
+  try {
+    const result = await adminClient.callTool({ name, arguments: args });
+    const text = result.content?.find(c => c.type === 'text')?.text ?? '';
+    if (result.isError) return res.status(400).json({ error: text });
+    res.json({ ok: true, result: text });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+}
+
 const app = express();
+
+app.get('/api/capabilities', (_req, res) => {
+  res.json({ admin: ADMIN, db_path: DB_PATH });
+});
+
+// Cheap change detection for live refresh: data_version increments whenever
+// another connection commits to the DB.
+app.get('/api/stats', (_req, res) => {
+  res.json({
+    data_version: db.pragma('data_version', { simple: true }),
+    now: new Date().toISOString(),
+  });
+});
+
+// Trail: the handoff timeline for a project — sessions in reverse chronology
+// plus the active auto-handoff (what the next agent should pick up).
+app.get('/api/trail', (req, res) => {
+  const projectId = req.query.project_id || null;
+  const where = projectId ? 'WHERE s.project_id = ?' : '';
+  const params = projectId ? [projectId] : [];
+  const sessions = db.prepare(`
+    SELECT s.id, s.project_id, s.started_at, s.ended_at, s.summary, s.outcome,
+           s.agent_id, s.provider, s.model, s.client, s.surface,
+           s.files_touched, s.commits_made,
+           p.name AS project_name, a.display_name AS agent_name
+      FROM sessions s
+      LEFT JOIN projects p ON p.id = s.project_id
+      LEFT JOIN agents a ON a.id = s.agent_id
+      ${where}
+      ORDER BY COALESCE(s.ended_at, s.started_at) DESC
+      LIMIT 100`).all(...params).map(r => ({
+    ...r,
+    files_touched: parseJson(r.files_touched, []),
+    commits_made: parseJson(r.commits_made, []),
+  }));
+  const handoffs = db.prepare(`
+    SELECT m.id, m.project_id, m.name, m.description, m.body, m.status,
+           m.updated_at, m.origin_session, m.created_by_agent,
+           a.display_name AS agent_name, p.name AS project_name
+      FROM memory_nodes m
+      LEFT JOIN agents a ON a.id = m.created_by_agent
+      LEFT JOIN projects p ON p.id = m.project_id
+      WHERE m.type = 'handoff' ${projectId ? 'AND m.project_id = ?' : ''}
+      ORDER BY m.updated_at DESC`).all(...params);
+  res.json({ sessions, handoffs });
+});
 
 app.get('/api/overview', (_req, res) => {
   const count = (t) => db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c;
@@ -226,10 +304,28 @@ app.post('/api/translate', async (req, res) => {
   }
 });
 
+// Admin write endpoints (403 unless WAYMARK_ADMIN=1). Statuses are validated
+// by the hub tools' own schemas.
+app.post('/api/admin/task-status', (req, res) => {
+  const { id, status } = req.body ?? {};
+  if (!id || !status) return res.status(400).json({ error: 'id and status are required' });
+  adminTool(res, 'task_update', { id, status });
+});
+
+app.post('/api/admin/memory-status', (req, res) => {
+  const { id, status } = req.body ?? {};
+  if (!id || !status) return res.status(400).json({ error: 'id and status are required' });
+  adminTool(res, 'memory_set_status', { id, status });
+});
+
 app.use(express.static(__dirname));
 
+if (ADMIN) {
+  adminClient = await initAdmin();
+}
+
 const server = app.listen(PORT, HOST, () => {
-  process.stdout.write(`Waymark dashboard (read-only) → http://${HOST}:${PORT}\n`);
+  process.stdout.write(`Waymark dashboard (${ADMIN ? 'ADMIN mode' : 'read-only'}) → http://${HOST}:${PORT}\n`);
   process.stdout.write(`Reading: ${DB_PATH}\n`);
 });
 

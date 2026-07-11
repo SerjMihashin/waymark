@@ -4,10 +4,13 @@
   "description": "Shared context and coordination MCP hub for AI agents",
   "main": "dist/server.js",
   "bin": {
+    "waymark-hub": "dist/cli/waymark.js",
     "waymark-benchmark": "dist/cli/benchmark.js"
   },
   "files": [
     "dist",
+    "dashboard",
+    "scripts/hooks",
     "README.md",
     "docs/BENCHMARKING.md",
     "docs/AGENT_IDENTITY.md",
@@ -15,6 +18,17 @@
     "docs/MEMORY_LIFECYCLE.md",
     "docs/TASK_COORDINATION.md"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SerjMihashin/waymark.git"
+  },
+  "homepage": "https://github.com/SerjMihashin/waymark#readme",
+  "bugs": {
+    "url": "https://github.com/SerjMihashin/waymark/issues"
+  },
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');fs.mkdirSync('dist/db/migrations',{recursive:true});fs.readdirSync('src/db/migrations').forEach(f=>fs.copyFileSync('src/db/migrations/'+f,'dist/db/migrations/'+f));console.log('Migrations copied.')\"",
     "test": "npm run build && node --test --test-concurrency=1 tests/*.test.js",
@@ -27,9 +41,19 @@
     "backup:db": "tsx scripts/backup-db.ts",
     "import:memory": "tsx scripts/import-existing-memory.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "ai-agents",
+    "agent-memory",
+    "handoff",
+    "shared-context",
+    "claude",
+    "codex",
+    "sqlite"
+  ],
+  "author": "Serj",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",

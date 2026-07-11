@@ -1,5 +1,8 @@
 # Waymark
 
+[![CI](https://github.com/SerjMihashin/waymark/actions/workflows/ci.yml/badge.svg)](https://github.com/SerjMihashin/waymark/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 **Shared memory and handoff hub for AI agents.** A waymark is a trail sign left
 for whoever walks the path next — Waymark does the same for agent sessions:
 Claude Code finishes work, and the next session of Codex, Claude Desktop, or any
@@ -50,35 +53,49 @@ The exact-token A/B protocol with live clients is in
 Requires Node.js 22+.
 
 ```bash
-git clone <this-repo> waymark && cd waymark
-npm install
-npm run build
-npm test          # 19 integration tests
+npm install -g waymark-hub
+waymark-hub init          # registers the hub in Claude Code / Codex, offers the hook
+waymark-hub doctor        # verifies the whole installation
+```
+
+`init` asks before touching anything; `init --yes` enables everything
+applicable. The database lives in `~/.waymark/hub.db` (survives package
+upgrades); override with `WAYMARK_HOME` or `DB_PATH`.
+
+From source instead:
+
+```bash
+git clone https://github.com/SerjMihashin/waymark && cd waymark
+npm install && npm test   # build + 20 integration tests
 ```
 
 ### Connect Claude Code (stdio)
 
+`waymark-hub init --claude`, or manually:
+
 ```bash
-claude mcp add --scope user waymark node "<path-to>/waymark/dist/server.js"
+claude mcp add --scope user waymark node "<install>/dist/server.js"
 ```
 
-Optional but recommended — auto-inject the resume packet into every new session
-via a `SessionStart` hook (zero tool calls spent on orientation), see
-[scripts/hooks/session-start-resume.cjs](./scripts/hooks/session-start-resume.cjs).
+Optional but recommended — `waymark-hub init --hook` installs a `SessionStart`
+hook that injects the resume packet into every new session (zero tool calls
+spent on orientation).
 
 ### Connect Codex
+
+`waymark-hub init --codex`, or manually:
 
 ```toml
 # ~/.codex/config.toml
 [mcp_servers.waymark]
 command = "node"
-args = ["<path-to>/waymark/dist/server.js"]
+args = ["<install>/dist/server.js"]
 ```
 
 ### Connect Claude Desktop / web (HTTP)
 
 ```bash
-node dist/server.js --http   # listens on 127.0.0.1:3747
+waymark-hub serve --http   # listens on 127.0.0.1:3747
 ```
 
 Add a custom connector: `http://localhost:3747/mcp`. Also available via

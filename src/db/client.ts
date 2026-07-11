@@ -1,14 +1,25 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
-// Anchor the default DB to the install location (…/ClaudePlus/data/hub.db) via
-// __dirname (dist/db → ../../data), NOT process.cwd(). Clients spawn the hub from
-// arbitrary project directories; a cwd-relative path would open a separate empty
-// DB per project and silently break the shared memory/task store. DB_PATH still
-// overrides (tests, benchmarks, custom deployments).
-const DEFAULT_DB_PATH = path.resolve(__dirname, '..', '..', 'data', 'hub.db');
-const DB_PATH = process.env.DB_PATH || DEFAULT_DB_PATH;
+// DB location, in priority order:
+//   1. DB_PATH        — explicit override (tests, benchmarks, custom deployments)
+//   2. WAYMARK_HOME   — explicit data home; DB lives at $WAYMARK_HOME/hub.db
+//   3. <install>/data/hub.db — but only when it ALREADY exists (git-clone installs
+//      that have been running; anchored via __dirname, never process.cwd(), since
+//      clients spawn the hub from arbitrary project directories)
+//   4. ~/.waymark/hub.db — default for fresh installs. npm upgrades replace the
+//      package directory, so the DB must not live inside it.
+export function resolveDbPath(): string {
+  if (process.env.DB_PATH) return process.env.DB_PATH;
+  if (process.env.WAYMARK_HOME) return path.join(process.env.WAYMARK_HOME, 'hub.db');
+  const installDbPath = path.resolve(__dirname, '..', '..', 'data', 'hub.db');
+  if (fs.existsSync(installDbPath)) return installDbPath;
+  return path.join(os.homedir(), '.waymark', 'hub.db');
+}
+
+const DB_PATH = resolveDbPath();
 
 let _db: Database.Database | null = null;
 

@@ -19,8 +19,9 @@ import { createRequire } from 'node:module';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-// Same default anchoring as the hub (…/ClaudePlus/data/hub.db); DB_PATH overrides.
-const DB_PATH = process.env.DB_PATH || path.resolve(__dirname, '..', 'data', 'hub.db');
+// Same DB resolution as the hub itself (DB_PATH → WAYMARK_HOME → install dir → ~/.waymark).
+const { resolveDbPath } = require(path.join(__dirname, '..', 'dist', 'db', 'client.js'));
+const DB_PATH = resolveDbPath();
 const PORT = parseInt(process.env.DASH_PORT || '4747', 10);
 const HOST = '127.0.0.1'; // loopback only
 

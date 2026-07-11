@@ -32,6 +32,11 @@
       transform: rotate(45deg); flex: none; }
     .trail-node.handoff::before { border-radius: 0; transform: rotate(45deg); background: var(--blaze); border-color: var(--blaze); }
 
+    .card-btn { cursor: pointer; transition: border-color .15s, transform .15s; }
+    .card-btn:hover { border-color: var(--blaze); transform: translateY(-1px); }
+    .row-btn { cursor: pointer; transition: background .15s; }
+    .row-btn:hover { background: var(--raised); }
+
     .pulse { animation: pulse 2.2s ease-in-out infinite; }
     @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
     @media (prefers-reduced-motion: reduce) { .pulse { animation: none } }
@@ -124,6 +129,15 @@
     }
     const fmtDate = (s) => s ? new Date(s.replace(' ', 'T') + (String(s).includes('Z') || String(s).includes('+') ? '' : 'Z')).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
+    // Russian plural: plural(2, ['проект','проекта','проектов']) → 'проекта'
+    function plural(n, forms) {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return forms[0];
+      if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return forms[1];
+      return forms[2];
+    }
+    const fmtNum = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ru-RU'));
+
     const initials = (name) => (name || '??').split(/[\s(-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
     const avatar = (name, color) => `
       <span class="mono inline-flex items-center justify-center w-7 h-7 rounded-full border text-[11px] shrink-0"
@@ -167,10 +181,119 @@
     }
 
     // ---- Обзор ---------------------------------------------------------------
+    function openProject(id, tab) {
+      projectId = id;
+      const sel = document.getElementById('projectFilter');
+      if (sel) sel.value = id;
+      current = tab || 'trail';
+      renderNav();
+      route();
+    }
+
     async function renderOverview(c) {
       const [ov, trail] = await Promise.all([api('/api/overview'), api('/api/trail' + pq())]);
-      const tiles = Object.entries({ 'проекты': ov.counts.projects, 'задачи': ov.counts.tasks, 'память': ov.counts.memory, 'сессии': ov.counts.sessions, 'агенты': ov.counts.agents, 'бенчмарки': ov.counts.experiments })
-        .map(([k, v]) => `<div class="card rounded-xl p-4"><div class="mono num text-2xl">${v}</div><div class="eyebrow mt-1">${k}</div></div>`).join('');
+
+      // Clickable stat cards: each leads to its section (projects → table below).
+      const CARDS = [
+        { n: ov.counts.projects, forms: ['проект', 'проекта', 'проектов'], go: 'projects' },
+        { n: ov.counts.tasks, forms: ['задача', 'задачи', 'задач'], go: 'tasks' },
+        { n: ov.counts.memory, forms: ['запись памяти', 'записи памяти', 'записей памяти'], go: 'memory' },
+        { n: ov.counts.sessions, forms: ['сессия', 'сессии', 'сессий'], go: 'sessions' },
+        { n: ov.counts.agents, forms: ['агент', 'агента', 'агентов'], go: 'agents' },
+        { n: ov.counts.experiments, forms: ['бенчмарк', 'бенчмарка', 'бенчмарков'], go: 'experiments' },
+      ];
+      const tiles = CARDS.map(t => `
+        <button data-go="${t.go}" class="card card-btn rounded-xl p-4 text-left" title="Открыть раздел">
+          <div class="mono num text-2xl">${t.n}</div>
+          <div class="eyebrow mt-1">${plural(t.n, t.forms)}</div>
+        </button>`).join('');
+
+      // Token economy gauge from recorded benchmark runs.
+      const tk = ov.tokens;
+      const bar = (label, value, max, color) => `
+        <div class="flex items-center gap-3 py-1.5">
+          <span class="w-32 text-sm shrink-0" style="color:var(--muted)">${label}</span>
+          <div class="flex-1 h-4 rounded overflow-hidden" style="background:var(--raised)">
+            <div class="h-full rounded" style="width:${Math.max(2, value / max * 100)}%;background:${color}"></div>
+          </div>
+          <span class="mono num text-sm w-20 text-right">${fmtNum(value)}</span>
+        </div>`;
+      const tokenPanel = tk ? `
+        <div class="card rounded-xl p-5 lg:col-span-2">
+          <div class="flex items-baseline gap-3 mb-3 flex-wrap">
+            <span class="eyebrow">экономия токенов на старте сессии</span>
+            <span class="eyebrow" style="color:var(--muted)" title="Медианы по ${tk.runs.without_hub}+${tk.runs.with_hub} прогонам бенчмарка">
+              ${tk.measurement === 'exact' ? 'точное измерение' : 'оценка по бенчмарку'}</span>
+          </div>
+          <div class="flex items-center gap-6 flex-wrap">
+            <div class="flex-1 min-w-[260px]">
+              ${bar('без хаба', tk.median.without_hub, tk.median.without_hub, 'var(--rust)')}
+              ${bar('через Waymark', tk.median.with_hub, tk.median.without_hub, 'var(--moss)')}
+            </div>
+            <div class="text-right">
+              <div class="mono num text-3xl" style="color:var(--moss)">−${String(tk.saving_pct).replace('.', ',')}%</div>
+              <div class="eyebrow mt-1">на ориентацию</div>
+            </div>
+          </div>
+          <div class="text-sm mt-3 pt-3 border-t" style="border-color:var(--line);color:var(--muted)">
+            ~${fmtNum(tk.saved_per_session)} ${plural(tk.saved_per_session, ['токен', 'токена', 'токенов'])} за сессию ×
+            ${tk.hub_sessions} ${plural(tk.hub_sessions, ['сессия', 'сессии', 'сессий'])} в хабе ≈
+            <span class="mono num" style="color:var(--ink)">${fmtNum(tk.saved_total_est)}</span> токенов сэкономлено всего (оценка)
+          </div>
+        </div>` : `
+        <div class="card rounded-xl p-5 lg:col-span-2">
+          <div class="eyebrow mb-2">экономия токенов</div>
+          <div class="text-sm" style="color:var(--muted)">Нет записанных прогонов бенчмарка.
+            Запустите <span class="mono">node scripts/benchmark-orientation.cjs --record</span> — здесь появится шкала «без хаба vs через Waymark».</div>
+        </div>`;
+
+      const activeHandoffs = trail.handoffs.filter(h => h.status === 'active');
+      const handoffPanel = `
+        <div class="card rounded-xl p-5">
+          <div class="eyebrow mb-3">активные передачи</div>
+          ${activeHandoffs.length ? activeHandoffs.map(h => `
+            <div class="flex items-start gap-3 py-2 px-2 -mx-2 rounded-lg row-btn" data-open-project="${esc(h.project_id || '')}" title="Открыть тропу проекта">
+              <span class="blaze-diamond mt-1.5"></span>
+              <div class="min-w-0">
+                <div class="text-sm truncate" data-tr>${esc(h.description || h.name)}</div>
+                <div class="eyebrow mt-0.5">${esc(h.project_name || 'глобально')} · ${relTime(h.updated_at)}</div>
+              </div>
+            </div>`).join('') : '<div class="text-sm" style="color:var(--muted)">Открытых передач нет — все тропы пройдены до конца.</div>'}
+        </div>`;
+
+      // Projects drill-down table.
+      const projRows = ov.projects.map(p => `
+        <tr class="row-btn border-t" style="border-color:var(--line)" data-open-project="${esc(p.id)}" title="Открыть тропу проекта">
+          <td class="py-2.5 pr-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:${p.active_handoffs ? 'var(--blaze)' : (p.sessions ? 'var(--moss)' : 'var(--muted)')}"></span>
+              <span class="text-sm font-medium truncate">${esc(p.name)}</span>
+              ${p.active_handoffs ? '<span class="blaze-diamond" style="width:8px;height:8px" title="есть активная передача"></span>' : ''}
+            </div>
+            ${p.stack ? `<div class="eyebrow mt-0.5 truncate max-w-[320px]">${esc(p.stack)}</div>` : ''}
+          </td>
+          <td class="mono num text-sm text-right px-3">${p.sessions}</td>
+          <td class="mono num text-sm text-right px-3">${p.memory}</td>
+          <td class="mono num text-sm text-right px-3" style="${p.open_tasks ? 'color:var(--amber)' : ''}">${p.open_tasks}</td>
+          <td class="text-sm text-right pl-3 whitespace-nowrap" style="color:var(--muted)">${relTime(p.last_activity)}</td>
+        </tr>`).join('');
+      const projectsPanel = `
+        <div class="card rounded-xl p-5 lg:col-span-2" id="ovProjects">
+          <div class="eyebrow mb-3">проекты</div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead><tr class="eyebrow text-left">
+                <th class="pb-2 font-normal">проект</th>
+                <th class="pb-2 px-3 font-normal text-right">сессии</th>
+                <th class="pb-2 px-3 font-normal text-right">память</th>
+                <th class="pb-2 px-3 font-normal text-right">открытые задачи</th>
+                <th class="pb-2 pl-3 font-normal text-right">активность</th>
+              </tr></thead>
+              <tbody>${projRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+
       const byStatus = ov.tasks_by_status.map(r => `
         <div class="flex items-center gap-3 py-1.5">
           <span class="w-24 text-sm" style="color:var(--muted)">${esc(STATUS_RU[r.status] || r.status)}</span>
@@ -179,27 +302,30 @@
           </div>
           <span class="mono num text-sm w-8 text-right">${r.c}</span>
         </div>`).join('');
-      const activeHandoffs = trail.handoffs.filter(h => h.status === 'active');
+      const tasksPanel = `
+        <div class="card rounded-xl p-5">
+          <div class="eyebrow mb-3">задачи по статусам</div>
+          ${byStatus || '<div style="color:var(--muted)" class="text-sm">Задач пока нет</div>'}
+        </div>`;
+
       c.innerHTML = `
         ${title('Обзор', 'Состояние общего хаба памяти')}
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">${tiles}</div>
-        <div class="grid lg:grid-cols-2 gap-4">
-          <div class="card rounded-xl p-5">
-            <div class="eyebrow mb-3">задачи по статусам</div>
-            ${byStatus || '<div style="color:var(--muted)" class="text-sm">Задач пока нет</div>'}
-          </div>
-          <div class="card rounded-xl p-5">
-            <div class="eyebrow mb-3">активные передачи</div>
-            ${activeHandoffs.length ? activeHandoffs.map(h => `
-              <div class="flex items-start gap-3 py-2">
-                <span class="blaze-diamond mt-1.5"></span>
-                <div class="min-w-0">
-                  <div class="text-sm truncate" data-tr>${esc(h.description || h.name)}</div>
-                  <div class="eyebrow mt-0.5">${esc(h.project_name || 'глобально')} · ${relTime(h.updated_at)}</div>
-                </div>
-              </div>`).join('') : '<div class="text-sm" style="color:var(--muted)">Открытых передач нет — все тропы пройдены до конца.</div>'}
-          </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">${tiles}</div>
+        <div class="grid lg:grid-cols-3 gap-4 mb-4">
+          ${tokenPanel}
+          ${handoffPanel}
+        </div>
+        <div class="grid lg:grid-cols-3 gap-4">
+          ${projectsPanel}
+          ${tasksPanel}
         </div>`;
+
+      c.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
+        const go = b.dataset.go;
+        if (go === 'projects') document.getElementById('ovProjects').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        else { current = go; renderNav(); route(); }
+      });
+      c.querySelectorAll('[data-open-project]').forEach(r => r.onclick = () => openProject(r.dataset.openProject, 'trail'));
     }
 
     // ---- Тропа (signature) ----------------------------------------------------

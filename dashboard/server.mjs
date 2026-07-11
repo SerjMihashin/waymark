@@ -113,19 +113,63 @@ app.get('/api/trail', (req, res) => {
 
 app.get('/api/overview', (_req, res) => {
   const count = (t) => db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c;
+  const counts = {
+    projects: count('projects'),
+    tasks: count('tasks'),
+    memory: count('memory_nodes'),
+    sessions: count('sessions'),
+    agents: count('agents'),
+    experiments: count('experiments'),
+  };
+
+  // Per-project drill-down for the overview table.
+  const projects = db.prepare(`
+    SELECT p.id, p.name, p.status, p.stack,
+      (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS sessions,
+      (SELECT COUNT(*) FROM memory_nodes m WHERE m.project_id = p.id AND m.status = 'active') AS memory,
+      (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status IN ('pending','in_progress')) AS open_tasks,
+      (SELECT COUNT(*) FROM memory_nodes m WHERE m.project_id = p.id AND m.type = 'handoff' AND m.status = 'active') AS active_handoffs,
+      (SELECT MAX(COALESCE(s.ended_at, s.started_at)) FROM sessions s WHERE s.project_id = p.id) AS last_activity
+    FROM projects p
+    ORDER BY last_activity IS NULL, last_activity DESC, p.name`).all();
+
+  // Token economy from recorded benchmark runs (median per variant).
+  const median = (arr) => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  };
+  const usage = db.prepare(`
+    SELECT variant, measurement, COALESCE(input_tokens,0) + COALESCE(output_tokens,0) AS total
+    FROM usage_reports
+    WHERE variant IN ('with_hub','without_hub') AND input_tokens IS NOT NULL`).all();
+  const withHub = usage.filter(u => u.variant === 'with_hub').map(u => u.total);
+  const withoutHub = usage.filter(u => u.variant === 'without_hub').map(u => u.total);
+  const mWith = median(withHub);
+  const mWithout = median(withoutHub);
+  let tokens = null;
+  if (mWith != null && mWithout != null && mWithout > 0) {
+    const savedPerSession = mWithout - mWith;
+    tokens = {
+      measurement: usage.every(u => u.measurement === 'exact') ? 'exact' : 'estimated',
+      runs: { with_hub: withHub.length, without_hub: withoutHub.length },
+      median: { with_hub: mWith, without_hub: mWithout },
+      saving_pct: Math.round((savedPerSession / mWithout) * 1000) / 10,
+      saved_per_session: savedPerSession,
+      hub_sessions: counts.sessions,
+      saved_total_est: savedPerSession * counts.sessions,
+    };
+  }
+
   res.json({
     db_path: DB_PATH,
-    counts: {
-      projects: count('projects'),
-      tasks: count('tasks'),
-      memory: count('memory_nodes'),
-      sessions: count('sessions'),
-      agents: count('agents'),
-      experiments: count('experiments'),
-    },
+    counts,
     tasks_by_status: db.prepare(
       `SELECT status, COUNT(*) c FROM tasks GROUP BY status ORDER BY c DESC`,
     ).all(),
+    projects,
+    tokens,
   });
 });
 

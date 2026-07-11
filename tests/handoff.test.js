@@ -107,6 +107,28 @@ test('a second partial session replaces the handoff instead of accumulating', as
   assert.equal(active.length, 1, 'exactly one active auto-handoff per project');
 });
 
+test('a global handoff (no project_id) warns and never leaks into project resumes', async () => {
+  const logResult = await callTool('session_log', {
+    agent_id: 'agent-a',
+    started_at: new Date().toISOString(),
+    summary: 'Worked on something without naming the project.',
+    outcome: 'partial',
+    next_steps: ['Continue the unnamed work'],
+  });
+  const text = textContent(logResult);
+  assert.match(text, /WARNING: no project_id/);
+
+  const resume = await callTool('workspace_resume', {
+    project_id: 'handoff-project',
+    agent_id: 'agent-a',
+  });
+  const packet = JSON.parse(textContent(resume));
+  assert.ok(
+    packet.memories.every(m => !(m.type === 'handoff' && m.source === 'global')),
+    'global handoff must not contaminate another project resume'
+  );
+});
+
 test('completed session retires the auto-handoff and resume no longer surfaces it', async () => {
   const logResult = await callTool('session_log', {
     project_id: 'handoff-project',

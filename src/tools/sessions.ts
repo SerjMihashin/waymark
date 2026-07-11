@@ -137,10 +137,15 @@ export function registerSessionTools(server: McpServer): void {
         handoffNote = ` Work completed: auto-handoff "${handoffName}" retired.`;
       }
 
+      const projectWarning = !project_id && needsHandoff
+        ? ' WARNING: no project_id — this handoff is global and will NOT surface in any' +
+          ' project resume. Re-log with project_id so the next agent finds it.'
+        : '';
+
       return {
         content: [{
           type: 'text',
-          text: `Session logged with id "${id}".${handoffNote}` +
+          text: `Session logged with id "${id}".${handoffNote}${projectWarning}` +
             ' Use memory_write for decisions/facts that should outlive this handoff.',
         }],
       };

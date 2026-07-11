@@ -241,10 +241,14 @@ export function buildContextPacket(options: BuildContextOptions): ContextPacket 
     }
   }
 
+  // Handoffs are inherently project-bound: a global one is almost always a
+  // session_log that forgot project_id, and surfacing it in every project's
+  // resume cross-contaminates unrelated work.
   const memories = db.prepare(`
     SELECT * FROM memory_nodes
     WHERE (project_id = ? OR project_id IS NULL)
       AND status = 'active'
+      AND NOT (type = 'handoff' AND project_id IS NULL)
       AND (valid_from IS NULL OR valid_from <= ?)
       AND (valid_until IS NULL OR valid_until >= ?)
     ORDER BY updated_at DESC

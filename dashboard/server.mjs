@@ -158,14 +158,15 @@ app.get('/api/overview', (_req, res) => {
       provider: r.provider, sessions: r.sessions, last_used: r.last_used,
     });
   }
-  const DAY_MS = 86_400_000;
+  // "In work" is a strict, documented rule: a session within the last 24 hours.
+  const ACTIVE_HOURS = 24;
   for (const p of projects) {
     const recent = recentByProject.get(p.id) || 0;
     p.recent_sessions = recent;
     p.activity_share = recentTotal ? Math.round((recent / recentTotal) * 100) : 0;
     p.agents = agentsByProject.get(p.id) || [];
     const ageMs = p.last_activity ? Date.now() - new Date(p.last_activity).getTime() : null;
-    p.work_status = ageMs != null && ageMs <= 2 * DAY_MS ? 'active'
+    p.work_status = ageMs != null && ageMs <= ACTIVE_HOURS * 3_600_000 ? 'active'
       : p.sessions > 0 ? 'paused'
       : 'idle';
   }
@@ -201,7 +202,7 @@ app.get('/api/overview', (_req, res) => {
 
   res.json({
     db_path: DB_PATH,
-    activity: { days: RECENT_DAYS, total_sessions: recentTotal },
+    activity: { days: RECENT_DAYS, total_sessions: recentTotal, active_hours: ACTIVE_HOURS },
     counts,
     tasks_by_status: db.prepare(
       `SELECT status, COUNT(*) c FROM tasks GROUP BY status ORDER BY c DESC`,

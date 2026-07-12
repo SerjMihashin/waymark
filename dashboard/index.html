@@ -127,10 +127,13 @@
         handoffs_head: 'active handoffs',
         handoffs_empty: 'No open handoffs — every trail has been walked to its end.',
         global: 'global',
-        projects_head: 'projects', projects_note: 'activity share — % of hub sessions, last 14 days',
-        th_project: 'project', th_status: 'status', th_share: 'activity share', th_agents: 'who works here',
+        projects_head: 'projects',
+        th_project: 'project', th_status: 'status', th_share: 'share · 14 days', th_agents: 'who works here',
         th_sessions: 'sessions', th_memory: 'memory', th_tasks: 'tasks', th_activity: 'last activity',
-        has_handoff: 'has an active handoff',
+        status_tip: (rel, h) => `last session: ${rel}. Rule: “in work” = a session within the last ${h} h, “paused” = older, “not started” = no sessions yet`,
+        legend: (h, d) => `in work — a session within the last ${h} h · paused — last session older · not started — no sessions yet · share — this project’s % of all hub sessions over the last ${d} days · ◆ handoff — unfinished work waiting to be continued`,
+        handoff_chip: 'handoff',
+        has_handoff: 'active handoff: unfinished work is waiting for the next agent to continue',
         share_tip: (pct, n, total, days) => `${pct}% of all hub sessions over the last ${days} days (${n} of ${total})`,
         agent_tip: (n, f, rel) => `${n} ${f}, last ${rel}`,
         tasks_by_status: 'tasks by status', no_tasks: 'No tasks yet',
@@ -203,10 +206,13 @@
         handoffs_head: 'активные передачи',
         handoffs_empty: 'Открытых передач нет — все тропы пройдены до конца.',
         global: 'глобально',
-        projects_head: 'проекты', projects_note: 'доля активности — % сессий хаба за последние 14 дней',
-        th_project: 'проект', th_status: 'статус', th_share: 'доля активности', th_agents: 'кто работает',
+        projects_head: 'проекты',
+        th_project: 'проект', th_status: 'статус', th_share: 'доля · 14 дней', th_agents: 'кто работает',
         th_sessions: 'сессии', th_memory: 'память', th_tasks: 'задачи', th_activity: 'активность',
-        has_handoff: 'есть активная передача',
+        status_tip: (rel, h) => `последняя сессия: ${rel}. Правило: «в работе» — сессия за последние ${h} ч, «пауза» — давнее, «не начат» — сессий ещё не было`,
+        legend: (h, d) => `в работе — сессия за последние ${h} ч · пауза — последняя сессия давнее · не начат — сессий ещё нет · доля — % этого проекта во всех сессиях хаба за ${d} дней · ◆ эстафета — незаконченная работа ждёт продолжения`,
+        handoff_chip: 'эстафета',
+        has_handoff: 'активная передача: незаконченная работа ждёт, когда следующий агент её продолжит',
         share_tip: (pct, n, total, days) => `${pct}% всех сессий хаба за последние ${days} дней (${n} из ${total})`,
         agent_tip: (n, f, rel) => `${n} ${f}, последняя ${rel}`,
         tasks_by_status: 'задачи по статусам', no_tasks: 'Задач пока нет',
@@ -453,11 +459,12 @@
             <div class="flex items-center gap-2 min-w-0">
               <span class="w-2 h-2 rounded-full shrink-0" style="background:${WORK_DOT[ws]}"></span>
               <span class="text-sm font-medium truncate">${esc(p.name)}</span>
-              ${p.active_handoffs ? `<span class="blaze-diamond" style="width:8px;height:8px" title="${t('has_handoff')}"></span>` : ''}
+              ${p.active_handoffs ? `<span class="mono text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap" style="border-color:var(--blaze);color:var(--blaze)" title="${esc(t('has_handoff'))}">◆ ${t('handoff_chip')}</span>` : ''}
             </div>
             ${p.stack ? `<div class="eyebrow mt-0.5 truncate max-w-[320px]">${esc(p.stack)}</div>` : ''}
           </td>
-          <td class="text-sm px-3 whitespace-nowrap" style="color:${WORK_COLOR[ws]}">${t('work_status')[ws]}</td>
+          <td class="text-sm px-3 whitespace-nowrap" style="color:${WORK_COLOR[ws]}"
+              title="${esc(t('status_tip')(relTime(p.last_activity), ov.activity.active_hours))}">${t('work_status')[ws]}</td>
           <td class="px-3">
             ${p.recent_sessions ? `
             <div class="flex items-center gap-2 whitespace-nowrap" title="${esc(t('share_tip')(p.activity_share, p.recent_sessions, ov.activity.total_sessions, ov.activity.days))}">
@@ -477,10 +484,7 @@
       }).join('');
       const projectsPanel = `
         <div class="card rounded-xl p-5" id="ovProjects">
-          <div class="flex items-baseline gap-3 mb-3">
-            <span class="eyebrow">${t('projects_head')}</span>
-            <span class="eyebrow" style="color:var(--muted)">${t('projects_note')}</span>
-          </div>
+          <div class="eyebrow mb-3">${t('projects_head')}</div>
           <div class="overflow-x-auto">
             <table class="w-full">
               <thead><tr class="eyebrow text-left">
@@ -495,6 +499,9 @@
               </tr></thead>
               <tbody>${projRows}</tbody>
             </table>
+          </div>
+          <div class="text-[12px] mt-3 pt-3 border-t leading-relaxed" style="border-color:var(--line);color:var(--muted)">
+            ${t('legend')(ov.activity.active_hours, ov.activity.days)}
           </div>
         </div>`;
 

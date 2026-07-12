@@ -133,6 +133,41 @@ app.get('/api/overview', (_req, res) => {
     FROM projects p
     ORDER BY last_activity IS NULL, last_activity DESC, p.name`).all();
 
+  // Real work status per project, derived from session logs — nothing invented:
+  // share of recent activity (last 14 days) and which agents/models actually
+  // logged sessions there.
+  const RECENT_DAYS = 14;
+  const recentByProject = new Map(db.prepare(`
+    SELECT project_id, COUNT(*) c FROM sessions
+     WHERE julianday('now') - julianday(COALESCE(ended_at, started_at)) <= ${RECENT_DAYS}
+     GROUP BY project_id`).all().map(r => [r.project_id, r.c]));
+  const recentTotal = [...recentByProject.values()].reduce((a, b) => a + b, 0);
+  const agentsByProject = new Map();
+  for (const r of db.prepare(`
+    SELECT s.project_id, a.display_name, COALESCE(s.client, s.surface) AS client,
+           s.model, s.provider,
+           COUNT(*) AS sessions, MAX(COALESCE(s.ended_at, s.started_at)) AS last_used
+      FROM sessions s LEFT JOIN agents a ON a.id = s.agent_id
+     GROUP BY s.project_id, COALESCE(a.display_name, COALESCE(s.client, s.surface) || '·' || s.model, COALESCE(s.client, s.surface), s.model, '?')
+     ORDER BY last_used DESC`).all()) {
+    if (!agentsByProject.has(r.project_id)) agentsByProject.set(r.project_id, []);
+    agentsByProject.get(r.project_id).push({
+      display_name: r.display_name, client: r.client, model: r.model,
+      provider: r.provider, sessions: r.sessions, last_used: r.last_used,
+    });
+  }
+  const DAY_MS = 86_400_000;
+  for (const p of projects) {
+    const recent = recentByProject.get(p.id) || 0;
+    p.recent_sessions = recent;
+    p.activity_share = recentTotal ? Math.round((recent / recentTotal) * 100) : 0;
+    p.agents = agentsByProject.get(p.id) || [];
+    const ageMs = p.last_activity ? Date.now() - new Date(p.last_activity).getTime() : null;
+    p.work_status = ageMs != null && ageMs <= 2 * DAY_MS ? 'active'
+      : p.sessions > 0 ? 'paused'
+      : 'idle';
+  }
+
   // Token economy from recorded benchmark runs (median per variant).
   const median = (arr) => {
     if (!arr.length) return null;

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru" class="dark">
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Waymark — тропа агентов</title>
+  <title>Waymark — agent trail hub</title>
   <!-- Tailwind vendored locally (no external CDN): offline-capable, no SRI/CDN-compromise risk. -->
   <script src="./vendor/tailwind.js"></script>
   <style>
@@ -53,21 +53,23 @@
       <div class="flex items-center gap-3 min-w-0">
         <span class="blaze-diamond" aria-hidden="true"></span>
         <h1 class="mono font-bold tracking-[.22em] text-base">WAYMARK</h1>
-        <span class="eyebrow hidden sm:inline" id="dbPath">тропа агентов</span>
+        <span class="eyebrow hidden sm:inline" id="dbPath"></span>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
         <span id="adminBadge" class="hidden eyebrow px-2 py-1 rounded border" style="color: var(--amber); border-color: var(--amber);">admin</span>
-        <span class="flex items-center gap-1.5 eyebrow" title="Автообновление: панель следит за изменениями БД">
+        <span class="flex items-center gap-1.5 eyebrow" id="liveWrap">
           <span id="liveDot" class="w-2 h-2 rounded-full pulse" style="background: var(--moss)"></span>
           <span id="liveLabel">live</span>
         </span>
-        <select id="projectFilter" aria-label="Фильтр по проекту"
+        <select id="projectFilter"
                 class="raised border rounded-lg px-3 py-1.5 text-sm max-w-[220px]" style="border-color: var(--line);">
-          <option value="">Все проекты</option>
+          <option value=""></option>
         </select>
         <span id="trStatus" class="text-xs" style="color: var(--muted)"></span>
-        <button id="trToggle" title="Перевод содержимого на русский (машинный, кэшируется)"
+        <button id="trToggle"
                 class="text-xs px-3 py-1.5 rounded-lg border transition" style="border-color: var(--line); color: var(--muted);">RU</button>
+        <button id="langToggle" title="Language"
+                class="mono text-xs px-3 py-1.5 rounded-lg border transition" style="border-color: var(--line); color: var(--muted);"></button>
       </div>
     </header>
 
@@ -76,22 +78,182 @@
       <nav class="md:hidden w-full border-b p-2 flex gap-1 overflow-x-auto fixed bottom-0 z-10" id="navMobile"
            style="border-color: var(--line); background: var(--bg);"></nav>
       <main class="flex-1 overflow-auto p-6 pb-20 md:pb-6" id="content">
-        <div style="color: var(--muted)">Загрузка…</div>
+        <div style="color: var(--muted)">Loading…</div>
       </main>
     </div>
   </div>
 
   <script>
-    const TABS = [
-      { id: 'overview', label: 'Обзор' },
-      { id: 'trail',    label: 'Тропа' },
-      { id: 'tasks',    label: 'Задачи' },
-      { id: 'memory',   label: 'Память' },
-      { id: 'sessions', label: 'Сессии' },
-      { id: 'agents',   label: 'Агенты' },
-      { id: 'experiments', label: 'Бенчмарки' },
-    ];
-    let current = 'trail';
+    // ---- i18n -------------------------------------------------------------------
+    // All UI chrome lives here in two languages. Hub CONTENT (memory bodies,
+    // summaries) is shown as stored; the optional RU button machine-translates it.
+    const T = {
+      en: {
+        doc_title: 'Waymark — agent trail hub',
+        tagline: 'agent trail hub',
+        loading: 'Loading…',
+        load_error: (m) => `Failed to load data: ${m}. Check that the hub DB is reachable and refresh the page.`,
+        live: 'live', offline: 'offline',
+        live_title: 'Auto-refresh: the panel watches the DB for changes',
+        all_projects: 'All projects',
+        project_filter: 'Filter by project',
+        tabs: { overview: 'Overview', trail: 'Trail', tasks: 'Tasks', memory: 'Memory', sessions: 'Sessions', agents: 'Agents', experiments: 'Benchmarks' },
+        status: {
+          pending: 'queued', in_progress: 'in progress', done: 'done', cancelled: 'cancelled',
+          active: 'active', paused: 'paused', archived: 'archived', superseded: 'superseded',
+          stale: 'stale', completed: 'completed', blocked: 'blocked', retired: 'retired',
+        },
+        work_status: { active: 'in work', paused: 'paused', idle: 'not started' },
+        just_now: 'just now', min_ago: (n) => `${n} min ago`, h_ago: (n) => `${n} h ago`, d_ago: (n) => `${n} d ago`,
+        locale: 'en-US',
+        no_name: 'unnamed', agent_unnamed: 'agent not named',
+        open_section: 'Open section', open_trail: 'Open the project trail',
+        f_project: ['project', 'projects', 'projects'],
+        f_task: ['task', 'tasks', 'tasks'],
+        f_memory: ['memory record', 'memory records', 'memory records'],
+        f_session: ['session', 'sessions', 'sessions'],
+        f_agent: ['agent', 'agents', 'agents'],
+        f_experiment: ['benchmark', 'benchmarks', 'benchmarks'],
+        f_token: ['token', 'tokens', 'tokens'],
+        ov_title: 'Overview', ov_sub: 'State of the shared memory hub',
+        tokens_head: 'token savings at session start',
+        tokens_exact: 'exact measurement', tokens_estimated: 'benchmark estimate',
+        tokens_runs_title: (a, b) => `Medians over ${a}+${b} benchmark runs`,
+        without_hub: 'without hub', with_hub: 'via Waymark',
+        on_orientation: 'on orientation',
+        saved_line: (per, perF, n, nF, total) => `~${per} ${perF} per session × ${n} ${nF} in the hub ≈ <span class="mono num" style="color:var(--ink)">${total}</span> tokens saved in total (estimate)`,
+        tokens_empty_head: 'token savings',
+        tokens_empty: 'No recorded benchmark runs. Run <span class="mono">node scripts/benchmark-orientation.cjs --record</span> — a "without hub vs via Waymark" gauge will appear here.',
+        handoffs_head: 'active handoffs',
+        handoffs_empty: 'No open handoffs — every trail has been walked to its end.',
+        global: 'global',
+        projects_head: 'projects', projects_note: 'activity share — by sessions over the last 14 days',
+        th_project: 'project', th_status: 'status', th_share: 'activity share', th_agents: 'who works here',
+        th_sessions: 'sessions', th_memory: 'memory', th_tasks: 'tasks', th_activity: 'last activity',
+        has_handoff: 'has an active handoff',
+        sessions_14d: (n, f) => `${n} ${f} in the last 14 days`,
+        agent_tip: (n, f, rel) => `${n} ${f}, last ${rel}`,
+        tasks_by_status: 'tasks by status', no_tasks: 'No tasks yet',
+        trail_title: 'Trail',
+        trail_sub_all: 'Recent sessions across all projects',
+        trail_sub_project: 'Who walked this route and what they left for the next one',
+        handoff_waiting: 'handoff waiting — continue from here',
+        retire: 'retire',
+        commits: 'commits', files: 'files',
+        handed_off: 'handed off', handoff_taken: 'handoff taken',
+        trail_empty: 'No marks on this trail yet', trail_empty_hint: 'Sessions appear after the first session_log from any agent.',
+        tasks_title: 'Tasks', tasks_sub: 'Coordination queue: claim takes a task atomically',
+        col_pending: 'Queued', col_in_progress: 'In progress', col_done: 'Done', col_cancelled: 'Cancelled',
+        empty_col: 'empty', blocker: 'blocker',
+        to_work: 'start', to_done: 'done', to_cancel: 'cancel',
+        memory_title: 'Memory', memory_sub: 'Shared knowledge: decisions, facts, handoffs',
+        mem_search: 'Search memory…', all_types: 'all types', any_status: 'any status',
+        imp_conf: 'importance / confidence', archive: 'archive',
+        mem_empty: 'Nothing found', mem_empty_hint: 'Change the filters or the search query.',
+        sessions_title: 'Sessions', sessions_sub: 'The log: who worked, what they did, how it ended',
+        sessions_empty: 'No sessions yet',
+        agents_title: 'Agents', agents_sub: 'Registered team members',
+        agents_empty: 'No agents registered yet', agents_empty_hint: 'agent_register is available with HUB_TOOLS=full.',
+        exp_title: 'Benchmarks', exp_sub: 'A/B: how many tokens the hub saves',
+        exp_empty: 'No experiments', exp_empty_hint: 'Create one via npm run benchmark -- create.',
+        admin_fail: 'Failed to change status: ',
+        tr_btn_title: 'Machine-translate hub content to Russian (cached)',
+        tr_busy: 'translating…', tr_done: 'translated', tr_no_key: 'no DeepSeek key',
+        tr_no_key_title: 'DeepSeek key not found (env DEEPSEEK_API_KEY or ~/.deepseek-code/settings.json)',
+        tr_error: 'translation error: ', tr_server: (s) => `server ${s} — restart npm run dashboard`,
+        tr_offline: 'translation server unreachable',
+        tr_confirm: 'Translation sends memory, task, and session texts to an external service (api.deepseek.com).\nDo not enable it if the hub holds sensitive data. Continue?',
+      },
+      ru: {
+        doc_title: 'Waymark — тропа агентов',
+        tagline: 'тропа агентов',
+        loading: 'Загрузка…',
+        load_error: (m) => `Не удалось загрузить данные: ${m}. Проверьте, что хаб-БД доступна, и обновите страницу.`,
+        live: 'live', offline: 'нет связи',
+        live_title: 'Автообновление: панель следит за изменениями БД',
+        all_projects: 'Все проекты',
+        project_filter: 'Фильтр по проекту',
+        tabs: { overview: 'Обзор', trail: 'Тропа', tasks: 'Задачи', memory: 'Память', sessions: 'Сессии', agents: 'Агенты', experiments: 'Бенчмарки' },
+        status: {
+          pending: 'в очереди', in_progress: 'в работе', done: 'готово', cancelled: 'отменено',
+          active: 'активна', paused: 'пауза', archived: 'архив', superseded: 'заменена',
+          stale: 'устарела', completed: 'завершена', blocked: 'блок', retired: 'выведен',
+        },
+        work_status: { active: 'в работе', paused: 'пауза', idle: 'не начат' },
+        just_now: 'только что', min_ago: (n) => `${n} мин назад`, h_ago: (n) => `${n} ч назад`, d_ago: (n) => `${n} дн назад`,
+        locale: 'ru-RU',
+        no_name: 'без имени', agent_unnamed: 'агент не назван',
+        open_section: 'Открыть раздел', open_trail: 'Открыть тропу проекта',
+        f_project: ['проект', 'проекта', 'проектов'],
+        f_task: ['задача', 'задачи', 'задач'],
+        f_memory: ['запись памяти', 'записи памяти', 'записей памяти'],
+        f_session: ['сессия', 'сессии', 'сессий'],
+        f_agent: ['агент', 'агента', 'агентов'],
+        f_experiment: ['бенчмарк', 'бенчмарка', 'бенчмарков'],
+        f_token: ['токен', 'токена', 'токенов'],
+        ov_title: 'Обзор', ov_sub: 'Состояние общего хаба памяти',
+        tokens_head: 'экономия токенов на старте сессии',
+        tokens_exact: 'точное измерение', tokens_estimated: 'оценка по бенчмарку',
+        tokens_runs_title: (a, b) => `Медианы по ${a}+${b} прогонам бенчмарка`,
+        without_hub: 'без хаба', with_hub: 'через Waymark',
+        on_orientation: 'на ориентацию',
+        saved_line: (per, perF, n, nF, total) => `~${per} ${perF} за сессию × ${n} ${nF} в хабе ≈ <span class="mono num" style="color:var(--ink)">${total}</span> токенов сэкономлено всего (оценка)`,
+        tokens_empty_head: 'экономия токенов',
+        tokens_empty: 'Нет записанных прогонов бенчмарка. Запустите <span class="mono">node scripts/benchmark-orientation.cjs --record</span> — здесь появится шкала «без хаба vs через Waymark».',
+        handoffs_head: 'активные передачи',
+        handoffs_empty: 'Открытых передач нет — все тропы пройдены до конца.',
+        global: 'глобально',
+        projects_head: 'проекты', projects_note: 'доля активности — по сессиям за 14 дней',
+        th_project: 'проект', th_status: 'статус', th_share: 'доля активности', th_agents: 'кто работает',
+        th_sessions: 'сессии', th_memory: 'память', th_tasks: 'задачи', th_activity: 'активность',
+        has_handoff: 'есть активная передача',
+        sessions_14d: (n, f) => `${n} ${f} за 14 дней`,
+        agent_tip: (n, f, rel) => `${n} ${f}, последняя ${rel}`,
+        tasks_by_status: 'задачи по статусам', no_tasks: 'Задач пока нет',
+        trail_title: 'Тропа',
+        trail_sub_all: 'Последние сессии по всем проектам',
+        trail_sub_project: 'Кто прошёл этот маршрут и что оставил следующему',
+        handoff_waiting: 'эстафета ждёт — продолжить отсюда',
+        retire: 'погасить',
+        commits: 'коммиты', files: 'файлы',
+        handed_off: 'передал эстафету', handoff_taken: 'эстафета принята',
+        trail_empty: 'На этой тропе ещё нет меток', trail_empty_hint: 'Сессии появятся после первого session_log от любого агента.',
+        tasks_title: 'Задачи', tasks_sub: 'Очередь координации: claim забирает задачу атомарно',
+        col_pending: 'В очереди', col_in_progress: 'В работе', col_done: 'Готово', col_cancelled: 'Отменено',
+        empty_col: 'пусто', blocker: 'блокер',
+        to_work: 'в работу', to_done: 'готово', to_cancel: 'отменить',
+        memory_title: 'Память', memory_sub: 'Общие знания: решения, факты, передачи',
+        mem_search: 'Поиск по памяти…', all_types: 'все типы', any_status: 'любой статус',
+        imp_conf: 'важность / уверенность', archive: 'архивировать',
+        mem_empty: 'Ничего не найдено', mem_empty_hint: 'Измените фильтры или поисковый запрос.',
+        sessions_title: 'Сессии', sessions_sub: 'Журнал: кто работал, что сделал, чем закончил',
+        sessions_empty: 'Сессий пока нет',
+        agents_title: 'Агенты', agents_sub: 'Зарегистрированные участники команды',
+        agents_empty: 'Агенты ещё не регистрировались', agents_empty_hint: 'agent_register доступен в профиле HUB_TOOLS=full.',
+        exp_title: 'Бенчмарки', exp_sub: 'A/B: сколько токенов экономит хаб',
+        exp_empty: 'Экспериментов нет', exp_empty_hint: 'Создайте через npm run benchmark -- create.',
+        admin_fail: 'Не удалось изменить статус: ',
+        tr_btn_title: 'Перевод содержимого на русский (машинный, кэшируется)',
+        tr_busy: 'перевожу…', tr_done: 'переведено', tr_no_key: 'нет ключа DeepSeek',
+        tr_no_key_title: 'Не найден ключ DeepSeek (env DEEPSEEK_API_KEY или ~/.deepseek-code/settings.json)',
+        tr_error: 'ошибка перевода: ', tr_server: (s) => `сервер ${s} — перезапустите npm run dashboard`,
+        tr_offline: 'нет связи с сервером перевода',
+        tr_confirm: 'Перевод отправляет тексты памяти, задач и сессий на внешний сервис (api.deepseek.com).\nНе включайте, если в хабе есть чувствительные данные. Продолжить?',
+      },
+    };
+    const urlParams = new URLSearchParams(location.search);
+    let lang = (() => {
+      const q = urlParams.get('lang');
+      if (T[q]) return q;
+      const saved = localStorage.getItem('dash_lang');
+      if (T[saved]) return saved;
+      return (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+    })();
+    const t = (k) => T[lang][k] ?? T.en[k];
+
+    const TAB_IDS = ['overview', 'trail', 'tasks', 'memory', 'sessions', 'agents', 'experiments'];
+    const urlTab = urlParams.get('tab');
+    let current = TAB_IDS.includes(urlTab) ? urlTab : 'trail';
     let projectId = '';
     let memQuery = '';
     let memType = '';
@@ -104,11 +266,7 @@
     const pq = () => projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
 
     const OUTCOME = { completed: 'var(--moss)', partial: 'var(--amber)', blocked: 'var(--rust)' };
-    const STATUS_RU = {
-      pending: 'в очереди', in_progress: 'в работе', done: 'готово', cancelled: 'отменено',
-      active: 'активна', paused: 'пауза', archived: 'архив', superseded: 'заменена',
-      stale: 'устарела', completed: 'завершена', blocked: 'блок', retired: 'выведен',
-    };
+    const statusLabel = (s) => t('status')[s] || s;
     const statusColor = (s) => ({
       active: 'var(--moss)', done: 'var(--moss)', completed: 'var(--moss)',
       pending: 'var(--amber)', in_progress: 'var(--blaze)', paused: 'var(--muted)',
@@ -121,43 +279,64 @@
       const d = new Date(s.replace(' ', 'T') + (String(s).includes('Z') || String(s).includes('+') ? '' : 'Z'));
       const diff = (Date.now() - d.getTime()) / 1000;
       if (!Number.isFinite(diff)) return '—';
-      if (diff < 90) return 'только что';
-      if (diff < 5400) return `${Math.round(diff / 60)} мин назад`;
-      if (diff < 129600) return `${Math.round(diff / 3600)} ч назад`;
-      if (diff < 12 * 86400) return `${Math.round(diff / 86400)} дн назад`;
-      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+      if (diff < 90) return t('just_now');
+      if (diff < 5400) return t('min_ago')(Math.round(diff / 60));
+      if (diff < 129600) return t('h_ago')(Math.round(diff / 3600));
+      if (diff < 12 * 86400) return t('d_ago')(Math.round(diff / 86400));
+      return d.toLocaleDateString(t('locale'), { day: 'numeric', month: 'short' });
     }
-    const fmtDate = (s) => s ? new Date(s.replace(' ', 'T') + (String(s).includes('Z') || String(s).includes('+') ? '' : 'Z')).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    const fmtDate = (s) => s ? new Date(s.replace(' ', 'T') + (String(s).includes('Z') || String(s).includes('+') ? '' : 'Z')).toLocaleString(t('locale'), { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
-    // Russian plural: plural(2, ['проект','проекта','проектов']) → 'проекта'
+    // Language-aware plural: RU has three forms, EN uses forms[0] / forms[2].
     function plural(n, forms) {
+      if (lang !== 'ru') return n === 1 ? forms[0] : forms[2];
       const m10 = n % 10, m100 = n % 100;
       if (m10 === 1 && m100 !== 11) return forms[0];
       if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return forms[1];
       return forms[2];
     }
-    const fmtNum = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ru-RU'));
+    const fmtNum = (n) => (n == null ? '—' : Math.round(n).toLocaleString(t('locale')));
 
     const initials = (name) => (name || '??').split(/[\s(-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
     const avatar = (name, color) => `
       <span class="mono inline-flex items-center justify-center w-7 h-7 rounded-full border text-[11px] shrink-0"
-            style="border-color:${color || 'var(--line)'}; color:${color || 'var(--muted)'}" title="${esc(name || 'без имени')}">${esc(initials(name))}</span>`;
+            style="border-color:${color || 'var(--line)'}; color:${color || 'var(--muted)'}" title="${esc(name || t('no_name'))}">${esc(initials(name))}</span>`;
     const chip = (text, color) => `<span class="mono text-[11px] px-2 py-0.5 rounded-full border" style="border-color:${color};color:${color}">${esc(text)}</span>`;
 
-    function title(t, sub) { return `<div class="mb-5"><div class="eyebrow mb-1">waymark / ${esc(current)}</div><h2 class="text-xl font-semibold">${esc(t)}</h2>${sub ? `<p class="text-sm mt-0.5" style="color:var(--muted)">${esc(sub)}</p>` : ''}</div>`; }
-    function empty(t, hint) { return `<div class="card rounded-xl p-10 text-center"><div style="color:var(--muted)">${esc(t)}</div>${hint ? `<div class="text-xs mt-2" style="color:var(--muted)">${esc(hint)}</div>` : ''}</div>`; }
+    // Human names for clients/models as logged in sessions — display only,
+    // unknown values pass through unchanged.
+    const CLIENT_NAMES = { 'claude-code': 'Claude Code', 'codex': 'Codex', 'claude-desktop': 'Claude Desktop', 'cursor': 'Cursor', 'windsurf': 'Windsurf' };
+    const prettyClient = (c) => CLIENT_NAMES[c] || c || '';
+    function prettyModel(m) {
+      if (!m) return '';
+      const s = String(m).replace(/^claude-/, '').replace(/-\d{8}$/, '');
+      const mm = s.match(/^(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?$/);
+      if (mm) return mm[1][0].toUpperCase() + mm[1].slice(1) + ' ' + mm[2] + (mm[3] ? '.' + mm[3] : '');
+      return s;
+    }
+    // Label for who actually worked: registered agent name, else client + model from the session log.
+    function agentLabel(a) {
+      if (a.display_name) return a.display_name;
+      const parts = [prettyClient(a.client), prettyModel(a.model)].filter(Boolean);
+      return parts.join(' · ') || a.provider || t('agent_unnamed');
+    }
+    const WORK_DOT = { active: 'var(--moss)', paused: 'var(--muted)', idle: 'var(--line)' };
+    const WORK_COLOR = { active: 'var(--moss)', paused: 'var(--muted)', idle: 'var(--muted)' };
+
+    function title(tt, sub) { return `<div class="mb-5"><div class="eyebrow mb-1">waymark / ${esc(current)}</div><h2 class="text-xl font-semibold">${esc(tt)}</h2>${sub ? `<p class="text-sm mt-0.5" style="color:var(--muted)">${esc(sub)}</p>` : ''}</div>`; }
+    function empty(tt, hint) { return `<div class="card rounded-xl p-10 text-center"><div style="color:var(--muted)">${esc(tt)}</div>${hint ? `<div class="text-xs mt-2" style="color:var(--muted)">${esc(hint)}</div>` : ''}</div>`; }
 
     function renderNav() {
       for (const navEl of [document.getElementById('nav'), document.getElementById('navMobile')]) {
         navEl.innerHTML = '';
-        for (const t of TABS) {
-          const active = t.id === current;
+        for (const id of TAB_IDS) {
+          const active = id === current;
           navEl.appendChild(el(`
-            <button data-tab="${t.id}" class="text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition w-full md:w-auto whitespace-nowrap"
+            <button data-tab="${id}" class="text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition w-full md:w-auto whitespace-nowrap"
               style="${active ? 'background:var(--raised);color:var(--ink);border:1px solid var(--line)' : 'color:var(--muted);border:1px solid transparent'}">
-              <span class="inline-block w-2 h-2 ${t.id === 'trail' ? '' : 'rounded-full'}"
-                    style="background:${active ? 'var(--blaze)' : 'var(--line)'};${t.id === 'trail' ? 'transform:rotate(45deg)' : ''}"></span>
-              ${t.label}
+              <span class="inline-block w-2 h-2 ${id === 'trail' ? '' : 'rounded-full'}"
+                    style="background:${active ? 'var(--blaze)' : 'var(--line)'};${id === 'trail' ? 'transform:rotate(45deg)' : ''}"></span>
+              ${t('tabs')[id]}
             </button>`));
         }
         navEl.querySelectorAll('button').forEach(b => b.onclick = () => { current = b.dataset.tab; renderNav(); route(); });
@@ -166,7 +345,7 @@
 
     async function route() {
       const c = document.getElementById('content');
-      c.innerHTML = '<div style="color:var(--muted)">Загрузка…</div>';
+      c.innerHTML = `<div style="color:var(--muted)">${t('loading')}</div>`;
       try {
         const r = {
           overview: renderOverview, trail: renderTrail, tasks: renderTasks,
@@ -176,11 +355,11 @@
         if (r) await r(c);
         await translateSection();
       } catch (e) {
-        c.innerHTML = `<div class="card rounded-xl p-6" style="color:var(--rust)">Не удалось загрузить данные: ${esc(e.message)}. Проверьте, что хаб-БД доступна, и обновите страницу.</div>`;
+        c.innerHTML = `<div class="card rounded-xl p-6" style="color:var(--rust)">${t('load_error')(esc(e.message))}</div>`;
       }
     }
 
-    // ---- Обзор ---------------------------------------------------------------
+    // ---- Overview ---------------------------------------------------------------
     function openProject(id, tab) {
       projectId = id;
       const sel = document.getElementById('projectFilter');
@@ -195,17 +374,17 @@
 
       // Clickable stat cards: each leads to its section (projects → table below).
       const CARDS = [
-        { n: ov.counts.projects, forms: ['проект', 'проекта', 'проектов'], go: 'projects' },
-        { n: ov.counts.tasks, forms: ['задача', 'задачи', 'задач'], go: 'tasks' },
-        { n: ov.counts.memory, forms: ['запись памяти', 'записи памяти', 'записей памяти'], go: 'memory' },
-        { n: ov.counts.sessions, forms: ['сессия', 'сессии', 'сессий'], go: 'sessions' },
-        { n: ov.counts.agents, forms: ['агент', 'агента', 'агентов'], go: 'agents' },
-        { n: ov.counts.experiments, forms: ['бенчмарк', 'бенчмарка', 'бенчмарков'], go: 'experiments' },
+        { n: ov.counts.projects, forms: t('f_project'), go: 'projects' },
+        { n: ov.counts.tasks, forms: t('f_task'), go: 'tasks' },
+        { n: ov.counts.memory, forms: t('f_memory'), go: 'memory' },
+        { n: ov.counts.sessions, forms: t('f_session'), go: 'sessions' },
+        { n: ov.counts.agents, forms: t('f_agent'), go: 'agents' },
+        { n: ov.counts.experiments, forms: t('f_experiment'), go: 'experiments' },
       ];
-      const tiles = CARDS.map(t => `
-        <button data-go="${t.go}" class="card card-btn rounded-xl p-4 text-left" title="Открыть раздел">
-          <div class="mono num text-2xl">${t.n}</div>
-          <div class="eyebrow mt-1">${plural(t.n, t.forms)}</div>
+      const tiles = CARDS.map(card => `
+        <button data-go="${card.go}" class="card card-btn rounded-xl p-4 text-left" title="${t('open_section')}">
+          <div class="mono num text-2xl">${card.n}</div>
+          <div class="eyebrow mt-1">${plural(card.n, card.forms)}</div>
         </button>`).join('');
 
       // Token economy gauge from recorded benchmark runs.
@@ -218,76 +397,100 @@
           </div>
           <span class="mono num text-sm w-20 text-right">${fmtNum(value)}</span>
         </div>`;
+      const pct = lang === 'ru' ? String(tk?.saving_pct ?? '').replace('.', ',') : String(tk?.saving_pct ?? '');
       const tokenPanel = tk ? `
         <div class="card rounded-xl p-5 lg:col-span-2">
           <div class="flex items-baseline gap-3 mb-3 flex-wrap">
-            <span class="eyebrow">экономия токенов на старте сессии</span>
-            <span class="eyebrow" style="color:var(--muted)" title="Медианы по ${tk.runs.without_hub}+${tk.runs.with_hub} прогонам бенчмарка">
-              ${tk.measurement === 'exact' ? 'точное измерение' : 'оценка по бенчмарку'}</span>
+            <span class="eyebrow">${t('tokens_head')}</span>
+            <span class="eyebrow" style="color:var(--muted)" title="${t('tokens_runs_title')(tk.runs.without_hub, tk.runs.with_hub)}">
+              ${tk.measurement === 'exact' ? t('tokens_exact') : t('tokens_estimated')}</span>
           </div>
           <div class="flex items-center gap-6 flex-wrap">
             <div class="flex-1 min-w-[260px]">
-              ${bar('без хаба', tk.median.without_hub, tk.median.without_hub, 'var(--rust)')}
-              ${bar('через Waymark', tk.median.with_hub, tk.median.without_hub, 'var(--moss)')}
+              ${bar(t('without_hub'), tk.median.without_hub, tk.median.without_hub, 'var(--rust)')}
+              ${bar(t('with_hub'), tk.median.with_hub, tk.median.without_hub, 'var(--moss)')}
             </div>
             <div class="text-right">
-              <div class="mono num text-3xl" style="color:var(--moss)">−${String(tk.saving_pct).replace('.', ',')}%</div>
-              <div class="eyebrow mt-1">на ориентацию</div>
+              <div class="mono num text-3xl" style="color:var(--moss)">−${pct}%</div>
+              <div class="eyebrow mt-1">${t('on_orientation')}</div>
             </div>
           </div>
           <div class="text-sm mt-3 pt-3 border-t" style="border-color:var(--line);color:var(--muted)">
-            ~${fmtNum(tk.saved_per_session)} ${plural(tk.saved_per_session, ['токен', 'токена', 'токенов'])} за сессию ×
-            ${tk.hub_sessions} ${plural(tk.hub_sessions, ['сессия', 'сессии', 'сессий'])} в хабе ≈
-            <span class="mono num" style="color:var(--ink)">${fmtNum(tk.saved_total_est)}</span> токенов сэкономлено всего (оценка)
+            ${t('saved_line')(fmtNum(tk.saved_per_session), plural(tk.saved_per_session, t('f_token')),
+              tk.hub_sessions, plural(tk.hub_sessions, t('f_session')), fmtNum(tk.saved_total_est))}
           </div>
         </div>` : `
         <div class="card rounded-xl p-5 lg:col-span-2">
-          <div class="eyebrow mb-2">экономия токенов</div>
-          <div class="text-sm" style="color:var(--muted)">Нет записанных прогонов бенчмарка.
-            Запустите <span class="mono">node scripts/benchmark-orientation.cjs --record</span> — здесь появится шкала «без хаба vs через Waymark».</div>
+          <div class="eyebrow mb-2">${t('tokens_empty_head')}</div>
+          <div class="text-sm" style="color:var(--muted)">${t('tokens_empty')}</div>
         </div>`;
 
       const activeHandoffs = trail.handoffs.filter(h => h.status === 'active');
       const handoffPanel = `
         <div class="card rounded-xl p-5">
-          <div class="eyebrow mb-3">активные передачи</div>
+          <div class="eyebrow mb-3">${t('handoffs_head')}</div>
           ${activeHandoffs.length ? activeHandoffs.map(h => `
-            <div class="flex items-start gap-3 py-2 px-2 -mx-2 rounded-lg row-btn" data-open-project="${esc(h.project_id || '')}" title="Открыть тропу проекта">
+            <div class="flex items-start gap-3 py-2 px-2 -mx-2 rounded-lg row-btn" data-open-project="${esc(h.project_id || '')}" title="${t('open_trail')}">
               <span class="blaze-diamond mt-1.5"></span>
               <div class="min-w-0">
                 <div class="text-sm truncate" data-tr>${esc(h.description || h.name)}</div>
-                <div class="eyebrow mt-0.5">${esc(h.project_name || 'глобально')} · ${relTime(h.updated_at)}</div>
+                <div class="eyebrow mt-0.5">${esc(h.project_name || t('global'))} · ${relTime(h.updated_at)}</div>
               </div>
-            </div>`).join('') : '<div class="text-sm" style="color:var(--muted)">Открытых передач нет — все тропы пройдены до конца.</div>'}
+            </div>`).join('') : `<div class="text-sm" style="color:var(--muted)">${t('handoffs_empty')}</div>`}
         </div>`;
 
-      // Projects drill-down table.
-      const projRows = ov.projects.map(p => `
-        <tr class="row-btn border-t" style="border-color:var(--line)" data-open-project="${esc(p.id)}" title="Открыть тропу проекта">
+      // Projects drill-down table. Status, activity share, and agents come
+      // straight from session logs — a project with no sessions shows none.
+      const projRows = ov.projects.map(p => {
+        const ws = p.work_status in WORK_DOT ? p.work_status : 'idle';
+        const agentBadges = p.agents.slice(0, 3).map(a =>
+          `<span class="mono text-[11px] px-1.5 py-0.5 rounded border whitespace-nowrap" style="border-color:var(--line);color:var(--muted)"
+                 title="${esc(t('agent_tip')(a.sessions, plural(a.sessions, t('f_session')), relTime(a.last_used)))}">${esc(agentLabel(a))}</span>`).join(' ')
+          + (p.agents.length > 3 ? `<span class="text-[11px]" style="color:var(--muted)"> +${p.agents.length - 3}</span>` : '');
+        return `
+        <tr class="row-btn border-t" style="border-color:var(--line)" data-open-project="${esc(p.id)}" title="${t('open_trail')}">
           <td class="py-2.5 pr-3">
             <div class="flex items-center gap-2 min-w-0">
-              <span class="w-2 h-2 rounded-full shrink-0" style="background:${p.active_handoffs ? 'var(--blaze)' : (p.sessions ? 'var(--moss)' : 'var(--muted)')}"></span>
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:${WORK_DOT[ws]}"></span>
               <span class="text-sm font-medium truncate">${esc(p.name)}</span>
-              ${p.active_handoffs ? '<span class="blaze-diamond" style="width:8px;height:8px" title="есть активная передача"></span>' : ''}
+              ${p.active_handoffs ? `<span class="blaze-diamond" style="width:8px;height:8px" title="${t('has_handoff')}"></span>` : ''}
             </div>
             ${p.stack ? `<div class="eyebrow mt-0.5 truncate max-w-[320px]">${esc(p.stack)}</div>` : ''}
           </td>
+          <td class="text-sm px-3 whitespace-nowrap" style="color:${WORK_COLOR[ws]}">${t('work_status')[ws]}</td>
+          <td class="px-3">
+            ${p.recent_sessions ? `
+            <div class="flex items-center gap-2" title="${esc(t('sessions_14d')(p.recent_sessions, plural(p.recent_sessions, t('f_session'))))}">
+              <div class="w-16 h-1.5 rounded-full overflow-hidden shrink-0" style="background:var(--raised)">
+                <div class="h-full rounded-full" style="width:${Math.max(4, p.activity_share)}%;background:var(--blaze)"></div>
+              </div>
+              <span class="mono num text-sm">${p.activity_share}%</span>
+            </div>` : `<span class="text-sm" style="color:var(--muted)">—</span>`}
+          </td>
+          <td class="text-sm px-3"><div class="flex items-center gap-1 flex-wrap max-w-[300px]">${agentBadges || '<span style="color:var(--muted)">—</span>'}</div></td>
           <td class="mono num text-sm text-right px-3">${p.sessions}</td>
           <td class="mono num text-sm text-right px-3">${p.memory}</td>
           <td class="mono num text-sm text-right px-3" style="${p.open_tasks ? 'color:var(--amber)' : ''}">${p.open_tasks}</td>
           <td class="text-sm text-right pl-3 whitespace-nowrap" style="color:var(--muted)">${relTime(p.last_activity)}</td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
       const projectsPanel = `
-        <div class="card rounded-xl p-5 lg:col-span-2" id="ovProjects">
-          <div class="eyebrow mb-3">проекты</div>
+        <div class="card rounded-xl p-5" id="ovProjects">
+          <div class="flex items-baseline gap-3 mb-3">
+            <span class="eyebrow">${t('projects_head')}</span>
+            <span class="eyebrow" style="color:var(--muted)">${t('projects_note')}</span>
+          </div>
           <div class="overflow-x-auto">
             <table class="w-full">
               <thead><tr class="eyebrow text-left">
-                <th class="pb-2 font-normal">проект</th>
-                <th class="pb-2 px-3 font-normal text-right">сессии</th>
-                <th class="pb-2 px-3 font-normal text-right">память</th>
-                <th class="pb-2 px-3 font-normal text-right">открытые задачи</th>
-                <th class="pb-2 pl-3 font-normal text-right">активность</th>
+                <th class="pb-2 font-normal">${t('th_project')}</th>
+                <th class="pb-2 px-3 font-normal">${t('th_status')}</th>
+                <th class="pb-2 px-3 font-normal">${t('th_share')}</th>
+                <th class="pb-2 px-3 font-normal">${t('th_agents')}</th>
+                <th class="pb-2 px-3 font-normal text-right">${t('th_sessions')}</th>
+                <th class="pb-2 px-3 font-normal text-right">${t('th_memory')}</th>
+                <th class="pb-2 px-3 font-normal text-right">${t('th_tasks')}</th>
+                <th class="pb-2 pl-3 font-normal text-right">${t('th_activity')}</th>
               </tr></thead>
               <tbody>${projRows}</tbody>
             </table>
@@ -296,7 +499,7 @@
 
       const byStatus = ov.tasks_by_status.map(r => `
         <div class="flex items-center gap-3 py-1.5">
-          <span class="w-24 text-sm" style="color:var(--muted)">${esc(STATUS_RU[r.status] || r.status)}</span>
+          <span class="w-24 text-sm" style="color:var(--muted)">${esc(statusLabel(r.status))}</span>
           <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:var(--raised)">
             <div class="h-full rounded-full" style="width:${Math.min(100, r.c / Math.max(1, ov.counts.tasks) * 100)}%;background:${statusColor(r.status)}"></div>
           </div>
@@ -304,21 +507,21 @@
         </div>`).join('');
       const tasksPanel = `
         <div class="card rounded-xl p-5">
-          <div class="eyebrow mb-3">задачи по статусам</div>
-          ${byStatus || '<div style="color:var(--muted)" class="text-sm">Задач пока нет</div>'}
+          <div class="eyebrow mb-3">${t('tasks_by_status')}</div>
+          ${byStatus || `<div style="color:var(--muted)" class="text-sm">${t('no_tasks')}</div>`}
         </div>`;
 
       c.innerHTML = `
-        ${title('Обзор', 'Состояние общего хаба памяти')}
+        ${title(t('ov_title'), t('ov_sub'))}
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">${tiles}</div>
         <div class="grid lg:grid-cols-3 gap-4 mb-4">
           ${tokenPanel}
-          ${handoffPanel}
+          <div class="space-y-4">
+            ${handoffPanel}
+            ${tasksPanel}
+          </div>
         </div>
-        <div class="grid lg:grid-cols-3 gap-4">
-          ${projectsPanel}
-          ${tasksPanel}
-        </div>`;
+        ${projectsPanel}`;
 
       c.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
         const go = b.dataset.go;
@@ -328,22 +531,22 @@
       c.querySelectorAll('[data-open-project]').forEach(r => r.onclick = () => openProject(r.dataset.openProject, 'trail'));
     }
 
-    // ---- Тропа (signature) ----------------------------------------------------
+    // ---- Trail (signature) ----------------------------------------------------
     async function renderTrail(c) {
-      const t = await api('/api/trail' + pq());
-      const active = t.handoffs.find(h => h.status === 'active');
-      const handoffBySession = new Map(t.handoffs.map(h => [h.origin_session, h]));
+      const tr = await api('/api/trail' + pq());
+      const active = tr.handoffs.find(h => h.status === 'active');
+      const handoffBySession = new Map(tr.handoffs.map(h => [h.origin_session, h]));
       const pinned = active ? `
         <div class="card rounded-xl p-5 mb-6" style="border-left: 3px solid var(--blaze)">
           <div class="flex items-center gap-2 mb-2">
             <span class="blaze-diamond"></span>
-            <span class="eyebrow" style="color:var(--blaze)">эстафета ждёт — продолжить отсюда</span>
+            <span class="eyebrow" style="color:var(--blaze)">${t('handoff_waiting')}</span>
           </div>
           <div class="text-sm mb-2" data-tr>${esc(active.description || '')}</div>
           <pre class="mono text-[12.5px] whitespace-pre-wrap leading-relaxed p-3 rounded-lg raised" data-tr>${esc(active.body || '')}</pre>
-          <div class="eyebrow mt-2">${esc(active.agent_name || active.created_by_agent || 'агент не назван')} · ${relTime(active.updated_at)}${isAdmin ? ` · <button class="underline" style="color:var(--muted)" onclick="adminMemory('${esc(active.id)}','archived')">погасить</button>` : ''}</div>
+          <div class="eyebrow mt-2">${esc(active.agent_name || active.created_by_agent || t('agent_unnamed'))} · ${relTime(active.updated_at)}${isAdmin ? ` · <button class="underline" style="color:var(--muted)" onclick="adminMemory('${esc(active.id)}','archived')">${t('retire')}</button>` : ''}</div>
         </div>` : '';
-      const nodes = t.sessions.map(s => {
+      const nodes = tr.sessions.map(s => {
         const color = OUTCOME[s.outcome] || 'var(--muted)';
         const h = handoffBySession.get(s.id);
         return `
@@ -352,29 +555,29 @@
             <div class="flex items-center gap-2.5 flex-wrap">
               ${avatar(s.agent_name || s.agent_id || s.client, color)}
               <span class="text-sm font-medium">${esc(s.agent_name || s.agent_id || s.client || s.surface)}</span>
-              ${chip(STATUS_RU[s.outcome] || s.outcome || '—', color)}
+              ${chip(statusLabel(s.outcome) || '—', color)}
               ${!projectId && s.project_name ? chip(s.project_name, 'var(--blue)') : ''}
               <span class="eyebrow ml-auto" title="${esc(fmtDate(s.ended_at || s.started_at))}">${relTime(s.ended_at || s.started_at)}</span>
             </div>
             <div class="text-sm mt-2.5 leading-relaxed" data-tr>${esc(s.summary || '')}</div>
             <div class="flex gap-2 mt-2.5 flex-wrap">
-              ${s.commits_made.length ? chip(`коммиты: ${s.commits_made.length}`, 'var(--muted)') : ''}
-              ${s.files_touched.length ? chip(`файлы: ${s.files_touched.length}`, 'var(--muted)') : ''}
-              ${h ? chip(h.status === 'active' ? 'передал эстафету' : 'эстафета принята', h.status === 'active' ? 'var(--blaze)' : 'var(--muted)') : ''}
+              ${s.commits_made.length ? chip(`${t('commits')}: ${s.commits_made.length}`, 'var(--muted)') : ''}
+              ${s.files_touched.length ? chip(`${t('files')}: ${s.files_touched.length}`, 'var(--muted)') : ''}
+              ${h ? chip(h.status === 'active' ? t('handed_off') : t('handoff_taken'), h.status === 'active' ? 'var(--blaze)' : 'var(--muted)') : ''}
             </div>
           </div>
         </div>`;
       }).join('');
       c.innerHTML = `
-        ${title('Тропа', projectId ? 'Кто прошёл этот маршрут и что оставил следующему' : 'Последние сессии по всем проектам')}
+        ${title(t('trail_title'), projectId ? t('trail_sub_project') : t('trail_sub_all'))}
         ${pinned}
-        ${t.sessions.length ? `<div class="trail">${nodes}</div>` : empty('На этой тропе ещё нет меток', 'Сессии появятся после первого session_log от любого агента.')}`;
+        ${tr.sessions.length ? `<div class="trail">${nodes}</div>` : empty(t('trail_empty'), t('trail_empty_hint'))}`;
     }
 
-    // ---- Задачи (доска) --------------------------------------------------------
+    // ---- Tasks (board) --------------------------------------------------------
     async function renderTasks(c) {
       const rows = await api('/api/tasks' + pq());
-      const COLS = [['pending', 'В очереди'], ['in_progress', 'В работе'], ['done', 'Готово'], ['cancelled', 'Отменено']];
+      const COLS = [['pending', t('col_pending')], ['in_progress', t('col_in_progress')], ['done', t('col_done')], ['cancelled', t('col_cancelled')]];
       const cols = COLS.map(([st, label]) => {
         const items = rows.filter(r => r.status === st);
         return `
@@ -393,22 +596,22 @@
                   ${!projectId && r.project_name ? chip(r.project_name, 'var(--blue)') : ''}
                   ${r.assigned_to || r.claimed_agent_name ? chip(r.claimed_agent_name || r.assigned_to, 'var(--muted)') : ''}
                   ${r.priority !== 50 ? chip(`p${r.priority}`, r.priority > 50 ? 'var(--amber)' : 'var(--muted)') : ''}
-                  ${r.blocker ? chip('блокер', 'var(--rust)') : ''}
+                  ${r.blocker ? chip(t('blocker'), 'var(--rust)') : ''}
                 </div>
                 ${isAdmin && (st === 'pending' || st === 'in_progress') ? `
                   <div class="flex gap-2 mt-3">
-                    ${st === 'pending' ? `<button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--blaze)" onclick="adminTask('${esc(r.id)}','in_progress')">в работу</button>` : ''}
-                    <button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--moss)" onclick="adminTask('${esc(r.id)}','done')">готово</button>
-                    <button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--muted)" onclick="adminTask('${esc(r.id)}','cancelled')">отменить</button>
+                    ${st === 'pending' ? `<button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--blaze)" onclick="adminTask('${esc(r.id)}','in_progress')">${t('to_work')}</button>` : ''}
+                    <button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--moss)" onclick="adminTask('${esc(r.id)}','done')">${t('to_done')}</button>
+                    <button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--muted)" onclick="adminTask('${esc(r.id)}','cancelled')">${t('to_cancel')}</button>
                   </div>` : ''}
-              </div>`).join('') || `<div class="text-xs px-1" style="color:var(--muted)">пусто</div>`}
+              </div>`).join('') || `<div class="text-xs px-1" style="color:var(--muted)">${t('empty_col')}</div>`}
           </div>
         </div>`;
       }).join('');
-      c.innerHTML = `${title('Задачи', 'Очередь координации: claim забирает задачу атомарно')}<div class="flex gap-4 overflow-x-auto pb-2">${cols}</div>`;
+      c.innerHTML = `${title(t('tasks_title'), t('tasks_sub'))}<div class="flex gap-4 overflow-x-auto pb-2">${cols}</div>`;
     }
 
-    // ---- Память -----------------------------------------------------------------
+    // ---- Memory -----------------------------------------------------------------
     async function renderMemory(c) {
       const params = new URLSearchParams();
       if (projectId) params.set('project_id', projectId);
@@ -418,14 +621,14 @@
       const rows = await api('/api/memory?' + params);
       const TYPES = ['', 'handoff', 'decision', 'project', 'user', 'feedback', 'reference'];
       c.innerHTML = `
-        ${title('Память', 'Общие знания: решения, факты, передачи')}
+        ${title(t('memory_title'), t('memory_sub'))}
         <div class="flex gap-2 mb-4 flex-wrap items-center">
-          <input id="memSearch" value="${esc(memQuery)}" placeholder="Поиск по памяти…" aria-label="Поиск по памяти"
+          <input id="memSearch" value="${esc(memQuery)}" placeholder="${t('mem_search')}" aria-label="${t('mem_search')}"
                  class="raised border rounded-lg px-3 py-1.5 text-sm w-60" style="border-color:var(--line)" />
-          ${TYPES.map(t => `<button data-type="${t}" class="text-xs px-2.5 py-1 rounded-full border mono"
-              style="border-color:${memType === t ? 'var(--blaze)' : 'var(--line)'};color:${memType === t ? 'var(--blaze)' : 'var(--muted)'}">${t || 'все типы'}</button>`).join('')}
-          <select id="memStatus" class="raised border rounded-lg px-2 py-1 text-xs ml-auto" style="border-color:var(--line)" aria-label="Статус записей">
-            ${['active', 'superseded', 'stale', 'archived', ''].map(s => `<option value="${s}" ${memStatus === s ? 'selected' : ''}>${s ? (STATUS_RU[s] || s) : 'любой статус'}</option>`).join('')}
+          ${TYPES.map(ty => `<button data-type="${ty}" class="text-xs px-2.5 py-1 rounded-full border mono"
+              style="border-color:${memType === ty ? 'var(--blaze)' : 'var(--line)'};color:${memType === ty ? 'var(--blaze)' : 'var(--muted)'}">${ty || t('all_types')}</button>`).join('')}
+          <select id="memStatus" class="raised border rounded-lg px-2 py-1 text-xs ml-auto" style="border-color:var(--line)" aria-label="status">
+            ${['active', 'superseded', 'stale', 'archived', ''].map(s => `<option value="${s}" ${memStatus === s ? 'selected' : ''}>${s ? statusLabel(s) : t('any_status')}</option>`).join('')}
           </select>
         </div>
         <div class="space-y-3">
@@ -435,20 +638,20 @@
               ${r.type === 'handoff' ? '<span class="blaze-diamond"></span>' : `<span class="w-2 h-2 rounded-full shrink-0" style="background:${statusColor(r.status)}"></span>`}
               <span class="mono text-[13px]">${esc(r.name)}</span>
               ${chip(r.type, r.type === 'handoff' ? 'var(--blaze)' : 'var(--blue)')}
-              ${r.status !== 'active' ? chip(STATUS_RU[r.status] || r.status, 'var(--muted)') : ''}
+              ${r.status !== 'active' ? chip(statusLabel(r.status), 'var(--muted)') : ''}
               <span class="flex-1 text-sm truncate" style="color:var(--muted)" data-tr>${esc(r.description || '')}</span>
-              <span class="mono num text-[11px]" style="color:var(--muted)" title="важность / уверенность">${r.importance}/${r.confidence}</span>
+              <span class="mono num text-[11px]" style="color:var(--muted)" title="${t('imp_conf')}">${r.importance}/${r.confidence}</span>
               <span class="eyebrow">${relTime(r.updated_at)}</span>
             </summary>
             <div class="px-4 pb-4">
               <pre class="mono text-[12.5px] whitespace-pre-wrap leading-relaxed p-3 rounded-lg raised" data-tr-body>${esc(r.body || '')}</pre>
               <div class="flex gap-2 mt-2 items-center flex-wrap">
-                ${(r.tags || []).map(t => chip('#' + t, 'var(--muted)')).join('')}
+                ${(r.tags || []).map(tg => chip('#' + tg, 'var(--muted)')).join('')}
                 <span class="eyebrow ml-auto">${esc(r.created_by_agent || r.surface || '')}</span>
-                ${isAdmin && r.status === 'active' ? `<button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--muted)" onclick="adminMemory('${esc(r.id)}','archived')">архивировать</button>` : ''}
+                ${isAdmin && r.status === 'active' ? `<button class="text-xs px-2 py-1 rounded border" style="border-color:var(--line);color:var(--muted)" onclick="adminMemory('${esc(r.id)}','archived')">${t('archive')}</button>` : ''}
               </div>
             </div>
-          </details>`).join('') || empty('Ничего не найдено', 'Измените фильтры или поисковый запрос.')}
+          </details>`).join('') || empty(t('mem_empty'), t('mem_empty_hint'))}
         </div>`;
       const search = document.getElementById('memSearch');
       let deb;
@@ -458,11 +661,11 @@
       c.querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => translateBody(d)));
     }
 
-    // ---- Сессии ------------------------------------------------------------------
+    // ---- Sessions ------------------------------------------------------------------
     async function renderSessions(c) {
       const rows = await api('/api/sessions' + pq());
       c.innerHTML = `
-        ${title('Сессии', 'Журнал: кто работал, что сделал, чем закончил')}
+        ${title(t('sessions_title'), t('sessions_sub'))}
         <div class="space-y-3">
         ${rows.map(s => `
           <div class="card rounded-xl p-4">
@@ -470,21 +673,21 @@
               ${avatar(s.agent_name || s.agent_id || s.client, OUTCOME[s.outcome] || 'var(--muted)')}
               <span class="text-sm font-medium">${esc(s.agent_name || s.agent_id || s.client || s.surface)}</span>
               ${s.model ? chip(s.model, 'var(--muted)') : ''}
-              ${chip(STATUS_RU[s.outcome] || s.outcome || '—', OUTCOME[s.outcome] || 'var(--muted)')}
+              ${chip(statusLabel(s.outcome) || '—', OUTCOME[s.outcome] || 'var(--muted)')}
               ${!projectId && s.project_name ? chip(s.project_name, 'var(--blue)') : ''}
               <span class="eyebrow ml-auto" title="${esc(fmtDate(s.started_at))}">${relTime(s.ended_at || s.started_at)}</span>
             </div>
             <div class="text-sm mt-2.5 leading-relaxed" data-tr>${esc(s.summary || '')}</div>
-            ${s.commits_made.length ? `<div class="mono text-[11px] mt-2" style="color:var(--muted)">коммиты: ${s.commits_made.map(esc).join(', ')}</div>` : ''}
-          </div>`).join('') || empty('Сессий пока нет')}
+            ${s.commits_made.length ? `<div class="mono text-[11px] mt-2" style="color:var(--muted)">${t('commits')}: ${s.commits_made.map(esc).join(', ')}</div>` : ''}
+          </div>`).join('') || empty(t('sessions_empty'))}
         </div>`;
     }
 
-    // ---- Агенты --------------------------------------------------------------------
+    // ---- Agents --------------------------------------------------------------------
     async function renderAgents(c) {
       const rows = await api('/api/agents');
       c.innerHTML = `
-        ${title('Агенты', 'Зарегистрированные участники команды')}
+        ${title(t('agents_title'), t('agents_sub'))}
         <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         ${rows.map(a => `
           <div class="card rounded-xl p-4">
@@ -494,39 +697,39 @@
                 <div class="text-sm font-medium truncate">${esc(a.display_name)}</div>
                 <div class="eyebrow mt-0.5">${esc([a.provider, a.model, a.client].filter(Boolean).join(' · '))}</div>
               </div>
-              <span class="ml-auto">${chip(STATUS_RU[a.status] || a.status, statusColor(a.status))}</span>
+              <span class="ml-auto">${chip(statusLabel(a.status), statusColor(a.status))}</span>
             </div>
             ${(a.capabilities || []).length ? `<div class="flex gap-1.5 mt-3 flex-wrap">${a.capabilities.map(cp => chip(cp, 'var(--muted)')).join('')}</div>` : ''}
-          </div>`).join('') || empty('Агенты ещё не регистрировались', 'agent_register доступен в профиле HUB_TOOLS=full.')}
+          </div>`).join('') || empty(t('agents_empty'), t('agents_empty_hint'))}
         </div>`;
     }
 
-    // ---- Бенчмарки --------------------------------------------------------------------
+    // ---- Benchmarks --------------------------------------------------------------------
     async function renderExperiments(c) {
       const rows = await api('/api/experiments');
       c.innerHTML = `
-        ${title('Бенчмарки', 'A/B: сколько токенов экономит хаб')}
+        ${title(t('exp_title'), t('exp_sub'))}
         <div class="space-y-3">
         ${rows.map(e => `
           <div class="card rounded-xl p-4 flex items-center gap-3 flex-wrap">
             <span class="mono text-[13px]">${esc(e.name)}</span>
             ${chip(e.scenario, 'var(--blue)')}
-            ${chip(STATUS_RU[e.status] || e.status, statusColor(e.status))}
+            ${chip(statusLabel(e.status), statusColor(e.status))}
             ${e.project_name ? chip(e.project_name, 'var(--muted)') : ''}
             <span class="text-sm flex-1" style="color:var(--muted)" data-tr>${esc(e.description || '')}</span>
             <span class="eyebrow">${relTime(e.created_at)}</span>
-          </div>`).join('') || empty('Экспериментов нет', 'Создайте через npm run benchmark -- create.')}
+          </div>`).join('') || empty(t('exp_empty'), t('exp_empty_hint'))}
         </div>`;
     }
 
     // ---- Admin actions -----------------------------------------------------------
     async function adminTask(id, status) {
       try { await api('/api/admin/task-status', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, status }) }); route(); }
-      catch (e) { alert('Не удалось изменить статус: ' + e.message); }
+      catch (e) { alert(t('admin_fail') + e.message); }
     }
     async function adminMemory(id, status) {
       try { await api('/api/admin/memory-status', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, status }) }); route(); }
-      catch (e) { alert('Не удалось изменить статус: ' + e.message); }
+      catch (e) { alert(t('admin_fail') + e.message); }
     }
 
     // ---- Live refresh --------------------------------------------------------------
@@ -535,57 +738,57 @@
       try {
         const s = await api('/api/stats');
         document.getElementById('liveDot').style.background = 'var(--moss)';
-        document.getElementById('liveLabel').textContent = 'live';
+        document.getElementById('liveLabel').textContent = t('live');
         if (dataVersion !== null && s.data_version !== dataVersion) route();
         dataVersion = s.data_version;
       } catch {
         document.getElementById('liveDot').style.background = 'var(--rust)';
-        document.getElementById('liveLabel').textContent = 'нет связи';
+        document.getElementById('liveLabel').textContent = t('offline');
       }
     }
     setInterval(pollLive, 4000);
 
-    // ---- Translation (opt-in, server-cached) ----------------------------------------
+    // ---- Content translation (opt-in, server-cached, RU only) -----------------------
     let translateOn = localStorage.getItem('dash_translate') === '1';
     const trCache = new Map();
-    const setStatus = (t, color) => {
+    const setStatus = (txt, color) => {
       const s = document.getElementById('trStatus');
-      if (s) { s.textContent = t; s.style.color = color || 'var(--muted)'; }
+      if (s) { s.textContent = txt; s.style.color = color || 'var(--muted)'; }
     };
     async function translateTexts(texts) {
-      const need = [...new Set(texts)].filter(t => t && !trCache.has(t));
+      const need = [...new Set(texts)].filter(x => x && !trCache.has(x));
       if (need.length) {
-        setStatus('перевожу…');
+        setStatus(t('tr_busy'));
         try {
           const r = await fetch('/api/translate', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ texts: need }),
           });
-          if (!r.ok) { setStatus(`сервер ${r.status} — перезапустите npm run dashboard`, 'var(--rust)'); return mapFrom(texts); }
+          if (!r.ok) { setStatus(t('tr_server')(r.status), 'var(--rust)'); return mapFrom(texts); }
           const data = await r.json();
           for (const [src, tr] of Object.entries(data.translations || {})) trCache.set(src, tr);
           if (data.error === 'no_key') {
-            setStatus('нет ключа DeepSeek', 'var(--amber)');
-            document.getElementById('trToggle').title = 'Не найден ключ DeepSeek (env DEEPSEEK_API_KEY или ~/.deepseek-code/settings.json)';
+            setStatus(t('tr_no_key'), 'var(--amber)');
+            document.getElementById('trToggle').title = t('tr_no_key_title');
           } else if (data.error) {
-            setStatus('ошибка перевода: ' + data.error, 'var(--rust)');
+            setStatus(t('tr_error') + data.error, 'var(--rust)');
           } else {
-            setStatus('переведено', 'var(--moss)');
+            setStatus(t('tr_done'), 'var(--moss)');
             setTimeout(() => { if (translateOn) setStatus(''); }, 1500);
           }
         } catch {
-          setStatus('нет связи с сервером перевода', 'var(--rust)');
+          setStatus(t('tr_offline'), 'var(--rust)');
         }
       }
       return mapFrom(texts);
     }
     function mapFrom(texts) {
       const map = {};
-      for (const t of texts) if (trCache.has(t)) map[t] = trCache.get(t);
+      for (const x of texts) if (trCache.has(x)) map[x] = trCache.get(x);
       return map;
     }
     async function translateSection() {
-      if (!translateOn) return;
+      if (!translateOn || lang !== 'ru') return;
       const els = [...document.querySelectorAll('[data-tr]')];
       if (!els.length) return;
       const map = await translateTexts(els.map(e => e.textContent.trim()));
@@ -593,7 +796,7 @@
     }
     // Memory bodies are large — translate only when the user expands them.
     async function translateBody(d) {
-      if (!translateOn || !d.open) return;
+      if (!translateOn || lang !== 'ru' || !d.open) return;
       const pre = d.querySelector('[data-tr-body]');
       if (!pre) return;
       const o = pre.textContent.trim();
@@ -602,20 +805,41 @@
     }
     function syncTrButton() {
       const b = document.getElementById('trToggle');
+      // Content translation targets Russian readers; hide the button in EN UI.
+      b.style.display = lang === 'ru' ? '' : 'none';
+      b.title = t('tr_btn_title');
       b.style.color = translateOn ? 'var(--blaze)' : 'var(--muted)';
       b.style.borderColor = translateOn ? 'var(--blaze)' : 'var(--line)';
     }
 
+    // ---- Language & static chrome ----------------------------------------------------
+    function renderChrome() {
+      document.documentElement.lang = lang;
+      document.title = t('doc_title');
+      document.getElementById('langToggle').textContent = lang.toUpperCase();
+      document.getElementById('liveWrap').title = t('live_title');
+      const sel = document.getElementById('projectFilter');
+      sel.setAttribute('aria-label', t('project_filter'));
+      sel.options[0].textContent = t('all_projects');
+      const dbPathEl = document.getElementById('dbPath');
+      if (!dbPathEl.textContent) dbPathEl.textContent = t('tagline');
+      syncTrButton();
+    }
+
     // ---- Init ------------------------------------------------------------------------
     async function init() {
+      renderChrome();
       renderNav();
-      syncTrButton();
+      document.getElementById('langToggle').onclick = () => {
+        lang = lang === 'ru' ? 'en' : 'ru';
+        localStorage.setItem('dash_lang', lang);
+        renderChrome();
+        renderNav();
+        route();
+      };
       document.getElementById('trToggle').onclick = () => {
         if (!translateOn && !localStorage.getItem('dash_translate_ack')) {
-          const ok = confirm(
-            'Перевод отправляет тексты памяти, задач и сессий на внешний сервис (api.deepseek.com).\n' +
-            'Не включайте, если в хабе есть чувствительные данные. Продолжить?'
-          );
+          const ok = confirm(t('tr_confirm'));
           if (!ok) return;
           localStorage.setItem('dash_translate_ack', '1');
         }

@@ -1,6 +1,6 @@
 {
   "name": "waymark-hub",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Shared context and coordination MCP hub for AI agents",
   "main": "dist/server.js",
   "bin": {

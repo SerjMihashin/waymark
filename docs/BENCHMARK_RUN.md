@@ -1,4 +1,4 @@
-# A/B benchmark run — continuation/orientation
+﻿# A/B benchmark run — continuation/orientation
 
 Concrete, reproducible protocol for the experiment
 `c41c1fd8-aa7e-4f6a-8e1e-14dea408fd63` (scenario `continue-orientation`).
@@ -37,7 +37,7 @@ Score `result_quality` 0–100 by how complete/accurate (2) and (3) are.
 **with_hub** — Hub available, agent starts with one call:
 1. Restore `[mcp_servers.waymark]` (default core profile is enough). Restart.
 2. New session, paste the fixed task. Agent calls
-   `workspace_resume(project_id="D--Projects-ClaudePlus", task=<the task>)` first,
+   `workspace_resume(project_id="D--Projects-WayMark", task=<the task>)` first,
    reads detail by id only if needed.
 3. Capture usage.
 

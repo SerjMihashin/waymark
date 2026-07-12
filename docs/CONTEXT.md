@@ -1,4 +1,4 @@
-# Token-budgeted context
+﻿# Token-budgeted context
 
 The Hub provides two high-level read-only tools for restoring project context
 without loading all memory into the agent prompt.
@@ -9,7 +9,7 @@ Use once at the beginning of a session:
 
 ```json
 {
-  "project_id": "D--Projects-ClaudePlus",
+  "project_id": "D--Projects-WayMark",
   "task": "Continue implementation of compact context",
   "agent_id": "codex-primary",
   "client_id": "codex",
@@ -35,7 +35,7 @@ Use when the agent needs context for a specific task:
 
 ```json
 {
-  "project_id": "D--Projects-ClaudePlus",
+  "project_id": "D--Projects-WayMark",
   "task": "Investigate SQLite write contention",
   "agent_id": "codex-primary",
   "max_tokens": 800,

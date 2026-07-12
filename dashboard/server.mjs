@@ -142,13 +142,15 @@ app.get('/api/overview', (_req, res) => {
      WHERE julianday('now') - julianday(COALESCE(ended_at, started_at)) <= ${RECENT_DAYS}
      GROUP BY project_id`).all().map(r => [r.project_id, r.c]));
   const recentTotal = [...recentByProject.values()].reduce((a, b) => a + b, 0);
+  // Group by the client+model pair that actually ran (a registered agent's
+  // display_name is only a fallback when the session logged neither).
   const agentsByProject = new Map();
   for (const r of db.prepare(`
-    SELECT s.project_id, a.display_name, COALESCE(s.client, s.surface) AS client,
-           s.model, s.provider,
+    SELECT s.project_id, MAX(a.display_name) AS display_name,
+           COALESCE(s.client, s.surface) AS client, s.model, s.provider,
            COUNT(*) AS sessions, MAX(COALESCE(s.ended_at, s.started_at)) AS last_used
       FROM sessions s LEFT JOIN agents a ON a.id = s.agent_id
-     GROUP BY s.project_id, COALESCE(a.display_name, COALESCE(s.client, s.surface) || '·' || s.model, COALESCE(s.client, s.surface), s.model, '?')
+     GROUP BY s.project_id, COALESCE(s.client, s.surface), s.model
      ORDER BY last_used DESC`).all()) {
     if (!agentsByProject.has(r.project_id)) agentsByProject.set(r.project_id, []);
     agentsByProject.get(r.project_id).push({
@@ -199,6 +201,7 @@ app.get('/api/overview', (_req, res) => {
 
   res.json({
     db_path: DB_PATH,
+    activity: { days: RECENT_DAYS, total_sessions: recentTotal },
     counts,
     tasks_by_status: db.prepare(
       `SELECT status, COUNT(*) c FROM tasks GROUP BY status ORDER BY c DESC`,

@@ -127,11 +127,11 @@
         handoffs_head: 'active handoffs',
         handoffs_empty: 'No open handoffs — every trail has been walked to its end.',
         global: 'global',
-        projects_head: 'projects', projects_note: 'activity share — by sessions over the last 14 days',
+        projects_head: 'projects', projects_note: 'activity share — % of hub sessions, last 14 days',
         th_project: 'project', th_status: 'status', th_share: 'activity share', th_agents: 'who works here',
         th_sessions: 'sessions', th_memory: 'memory', th_tasks: 'tasks', th_activity: 'last activity',
         has_handoff: 'has an active handoff',
-        sessions_14d: (n, f) => `${n} ${f} in the last 14 days`,
+        share_tip: (pct, n, total, days) => `${pct}% of all hub sessions over the last ${days} days (${n} of ${total})`,
         agent_tip: (n, f, rel) => `${n} ${f}, last ${rel}`,
         tasks_by_status: 'tasks by status', no_tasks: 'No tasks yet',
         trail_title: 'Trail',
@@ -203,11 +203,11 @@
         handoffs_head: 'активные передачи',
         handoffs_empty: 'Открытых передач нет — все тропы пройдены до конца.',
         global: 'глобально',
-        projects_head: 'проекты', projects_note: 'доля активности — по сессиям за 14 дней',
+        projects_head: 'проекты', projects_note: 'доля активности — % сессий хаба за последние 14 дней',
         th_project: 'проект', th_status: 'статус', th_share: 'доля активности', th_agents: 'кто работает',
         th_sessions: 'сессии', th_memory: 'память', th_tasks: 'задачи', th_activity: 'активность',
         has_handoff: 'есть активная передача',
-        sessions_14d: (n, f) => `${n} ${f} за 14 дней`,
+        share_tip: (pct, n, total, days) => `${pct}% всех сессий хаба за последние ${days} дней (${n} из ${total})`,
         agent_tip: (n, f, rel) => `${n} ${f}, последняя ${rel}`,
         tasks_by_status: 'задачи по статусам', no_tasks: 'Задач пока нет',
         trail_title: 'Тропа',
@@ -314,11 +314,11 @@
       if (mm) return mm[1][0].toUpperCase() + mm[1].slice(1) + ' ' + mm[2] + (mm[3] ? '.' + mm[3] : '');
       return s;
     }
-    // Label for who actually worked: registered agent name, else client + model from the session log.
+    // Label for who actually worked: client + model as logged in sessions;
+    // the registered agent name is only a fallback when neither was logged.
     function agentLabel(a) {
-      if (a.display_name) return a.display_name;
       const parts = [prettyClient(a.client), prettyModel(a.model)].filter(Boolean);
-      return parts.join(' · ') || a.provider || t('agent_unnamed');
+      return parts.join(' · ') || a.display_name || a.provider || t('agent_unnamed');
     }
     const WORK_DOT = { active: 'var(--moss)', paused: 'var(--muted)', idle: 'var(--line)' };
     const WORK_COLOR = { active: 'var(--moss)', paused: 'var(--muted)', idle: 'var(--muted)' };
@@ -460,11 +460,12 @@
           <td class="text-sm px-3 whitespace-nowrap" style="color:${WORK_COLOR[ws]}">${t('work_status')[ws]}</td>
           <td class="px-3">
             ${p.recent_sessions ? `
-            <div class="flex items-center gap-2" title="${esc(t('sessions_14d')(p.recent_sessions, plural(p.recent_sessions, t('f_session'))))}">
+            <div class="flex items-center gap-2 whitespace-nowrap" title="${esc(t('share_tip')(p.activity_share, p.recent_sessions, ov.activity.total_sessions, ov.activity.days))}">
               <div class="w-16 h-1.5 rounded-full overflow-hidden shrink-0" style="background:var(--raised)">
                 <div class="h-full rounded-full" style="width:${Math.max(4, p.activity_share)}%;background:var(--blaze)"></div>
               </div>
               <span class="mono num text-sm">${p.activity_share}%</span>
+              <span class="text-[12px]" style="color:var(--muted)">${p.recent_sessions} ${plural(p.recent_sessions, t('f_session'))}</span>
             </div>` : `<span class="text-sm" style="color:var(--muted)">—</span>`}
           </td>
           <td class="text-sm px-3"><div class="flex items-center gap-1 flex-wrap max-w-[300px]">${agentBadges || '<span style="color:var(--muted)">—</span>'}</div></td>
@@ -555,6 +556,7 @@
             <div class="flex items-center gap-2.5 flex-wrap">
               ${avatar(s.agent_name || s.agent_id || s.client, color)}
               <span class="text-sm font-medium">${esc(s.agent_name || s.agent_id || s.client || s.surface)}</span>
+              ${s.model ? chip(prettyModel(s.model), 'var(--muted)') : ''}
               ${chip(statusLabel(s.outcome) || '—', color)}
               ${!projectId && s.project_name ? chip(s.project_name, 'var(--blue)') : ''}
               <span class="eyebrow ml-auto" title="${esc(fmtDate(s.ended_at || s.started_at))}">${relTime(s.ended_at || s.started_at)}</span>
@@ -672,7 +674,7 @@
             <div class="flex items-center gap-2.5 flex-wrap">
               ${avatar(s.agent_name || s.agent_id || s.client, OUTCOME[s.outcome] || 'var(--muted)')}
               <span class="text-sm font-medium">${esc(s.agent_name || s.agent_id || s.client || s.surface)}</span>
-              ${s.model ? chip(s.model, 'var(--muted)') : ''}
+              ${s.model ? chip(prettyModel(s.model), 'var(--muted)') : ''}
               ${chip(statusLabel(s.outcome) || '—', OUTCOME[s.outcome] || 'var(--muted)')}
               ${!projectId && s.project_name ? chip(s.project_name, 'var(--blue)') : ''}
               <span class="eyebrow ml-auto" title="${esc(fmtDate(s.started_at))}">${relTime(s.ended_at || s.started_at)}</span>

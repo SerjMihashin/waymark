@@ -1,4 +1,4 @@
-# Token usage benchmarking
+﻿# Token usage benchmarking
 
 This document defines the Stage 1 measurement protocol for comparing agent work
 with and without the Hub.
@@ -51,7 +51,7 @@ The same workflow is available from the command line:
 npm run benchmark -- create `
   --name "Continuation benchmark" `
   --scenario "continue-bugfix" `
-  --project-id "D--Projects-ClaudePlus" `
+  --project-id "D--Projects-WayMark" `
   --target-runs 5
 
 # Record one run from flags

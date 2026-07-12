@@ -1,4 +1,4 @@
-# Техническое задание — Waymark Hub
+﻿# Техническое задание — Waymark Hub
 
 ## 1. Цель
 
@@ -175,7 +175,7 @@ npm run build
 
 ### Регистрация в Claude Code
 ```powershell
-claude mcp add --scope user waymark node "D:\Projects\ClaudePlus\dist\server.js"
+claude mcp add --scope user waymark node "D:\Projects\WayMark\dist\server.js"
 ```
 
 ### Claude Desktop / Claude.ai web
